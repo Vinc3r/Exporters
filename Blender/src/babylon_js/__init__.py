@@ -5,8 +5,8 @@ bl_info = {
     'blender': (2, 80, 0),
     'location': 'File > Export > Babylon.js (.babylon)',
     'description': 'Export Babylon.js scenes (.babylon)',
-    'wiki_url': 'https://github.com/BabylonJS/Babylon.js/tree/master/Exporters/Blender',
-    'tracker_url': '',
+    'wiki_url': 'https://github.com/BabylonJS/Exporters/tree/master/Blender',
+    'tracker_url': 'https://github.com/BabylonJS/Exporters/issues',
     'category': 'Babylon.JS'}
 
 import bpy
