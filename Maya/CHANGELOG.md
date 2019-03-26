@@ -33,3 +33,11 @@ from the export interface
 ## v1.2.28
 **Implemented changes:**
 - Joint indices for glTF are now set to 0 instead of joint count
+
+## v1.2.29
+**Fixed bugs:**
+- Allow animation groups with two key frames of the same value to export
+
+## v1.2.30
+**Fixed bugs:**
+- Disallow animation groups with two key frames of a TRS value to export if they are the default value (origin, no scale, no rotation)
