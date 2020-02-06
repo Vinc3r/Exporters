@@ -23,7 +23,7 @@ namespace Maya2Babylon
         public event Action<string, Color, int, bool> OnMessage;
         public event Action<string, Color, int, bool> OnVerbose;
 
-        void ReportProgressChanged(int progress)
+        public void ReportProgressChanged(int progress)
         {
             if (OnExportProgressChanged != null)
             {
@@ -31,12 +31,12 @@ namespace Maya2Babylon
             }
         }
 
-        void ReportProgressChanged(float progress)
+        public void ReportProgressChanged(float progress)
         {
             ReportProgressChanged((int)progress);
         }
 
-        void RaiseError(string error, int rank = 0)
+        public void RaiseError(string error, int rank = 0)
         {
             if (OnError != null && logLevel >= LogLevel.ERROR)
             {
@@ -44,7 +44,7 @@ namespace Maya2Babylon
             }
         }
 
-        void RaiseWarning(string warning, int rank = 0)
+        public void RaiseWarning(string warning, int rank = 0)
         {
             if (OnWarning != null && logLevel >= LogLevel.WARNING)
             {
@@ -52,12 +52,12 @@ namespace Maya2Babylon
             }
         }
 
-        void RaiseMessage(string message, int rank = 0, bool emphasis = false)
+        public void RaiseMessage(string message, int rank = 0, bool emphasis = false)
         {
             RaiseMessage(message, Color.Black, rank, emphasis);
         }
 
-        void RaiseMessage(string message, Color color, int rank = 0, bool emphasis = false)
+        public void RaiseMessage(string message, Color color, int rank = 0, bool emphasis = false)
         {
             if (OnMessage != null && logLevel >= LogLevel.MESSAGE)
             {
@@ -65,12 +65,12 @@ namespace Maya2Babylon
             }
         }
 
-        void RaiseVerbose(string message, int rank = 0, bool emphasis = false)
+        public void RaiseVerbose(string message, int rank = 0, bool emphasis = false)
         {
             RaiseVerbose(message, Color.FromArgb(100, 100, 100), rank, emphasis);
         }
 
-        void RaiseVerbose(string message, Color color, int rank = 0, bool emphasis = false)
+        public void RaiseVerbose(string message, Color color, int rank = 0, bool emphasis = false)
         {
             if (OnVerbose != null && logLevel >= LogLevel.VERBOSE)
             {
@@ -82,17 +82,9 @@ namespace Maya2Babylon
         {
             // prints
             RaiseVerbose(title, logRank);
-            RaiseVerbose("Attributes", logRank + 1);
-            for (uint i = 0; i < dependencyNode.attributeCount; i++)
-            {
-                MObject attribute = dependencyNode.attribute(i);
 
-                if (attribute.hasFn(MFn.Type.kAttribute))
-                {
-                    MFnAttribute mFnAttribute = new MFnAttribute(attribute);
-                    RaiseVerbose("name=" + mFnAttribute.name + "    apiType=" + attribute.apiType, logRank + 2);
-                }
-            }
+            PrintAttributes(dependencyNode, logRank + 1);
+
             RaiseVerbose("Connections", logRank + 1);
             MPlugArray connections = new MPlugArray();
             try {
@@ -101,18 +93,54 @@ namespace Maya2Babylon
                 foreach (MPlug connection in connections)
                 {
                     MObject source = connection.source.node;
+
+                    MPlugArray destinations = new MPlugArray();
+                    connection.destinations(destinations);
+
                     if (source != null && source.hasFn(MFn.Type.kDependencyNode))
                     {
                         MFnDependencyNode node = new MFnDependencyNode(source);
-                        RaiseVerbose("name=" + connection.name + "    source=" + node.name + "    source.apiType=" + source.apiType, logRank + 2);
+                        RaiseVerbose("name=" + connection.name + "    partialName=" + connection.partialName(false, false, false, true) + "    source=" + node.name + "    source.apiType=" + source.apiType, logRank + 2);
                     }
                     else
                     {
                         RaiseVerbose("name=" + connection.name, logRank + 2);
                     }
+
+                    RaiseVerbose("destinations.Count=" + destinations.Count, logRank + 3);
+                    foreach (MPlug destination in destinations)
+                    {
+                        MObject destinationObject = destination.node;
+                        if (destinationObject != null && destinationObject.hasFn(MFn.Type.kDependencyNode))
+                        {
+                            MFnDependencyNode node = new MFnDependencyNode(destinationObject);
+                            RaiseVerbose("destination=" + node.name + "    destination.apiType=" + destinationObject.apiType, logRank + 3);
+
+                            if (destinationObject.hasFn(MFn.Type.kShadingEngine))
+                            {
+                                PrintAttributes(node, logRank + 4);
+                            }
+                        }
+                    }
                 }
             }
             catch {}
+        }
+
+        void PrintAttributes(MFnDependencyNode dependencyNode, int logRank)
+        {
+            // prints
+            RaiseVerbose("Attributes", logRank);
+            for (uint i = 0; i < dependencyNode.attributeCount; i++)
+            {
+                MObject attribute = dependencyNode.attribute(i);
+
+                if (attribute.hasFn(MFn.Type.kAttribute))
+                {
+                    MFnAttribute mFnAttribute = new MFnAttribute(attribute);
+                    RaiseVerbose("name=" + mFnAttribute.name + "    apiType=" + attribute.apiType, logRank + 1);
+                }
+            }
         }
     }
 }

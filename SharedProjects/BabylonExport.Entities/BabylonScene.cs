@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Serialization;
+using Babylon2GLTF;
+using GLTFExport.Entities;
 
 namespace BabylonExport.Entities
 {
@@ -107,6 +109,10 @@ namespace BabylonExport.Entities
         public BabylonVector3 MaxVector { get; set; }
         public BabylonVector3 MinVector { get; set; }
 
+        public int TimelineFramesPerSecond { get; set; }
+        public int TimelineStartFrame { get; set; }
+        public int TimelineEndFrame { get; set; }
+
         public string OutputPath { get; private set; }
 
         public List<BabylonMesh> MeshesList { get; private set; }
@@ -118,6 +124,8 @@ namespace BabylonExport.Entities
         public List<BabylonShadowGenerator> ShadowGeneratorsList { get; private set; }
         public List<BabylonSkeleton> SkeletonsList { get; private set; }
         public List<BabylonMorphTargetManager> MorphTargetManagersList { get; private set; }
+        public Dictionary<string, BabylonNode> NodeMap { get; private set; }
+        public Dictionary<IBabylonExtensionExporter,Type> BabylonToGLTFExtensions { get; private set; }
 
         public BabylonScene(string outputPath)
         {
@@ -132,6 +140,8 @@ namespace BabylonExport.Entities
             SkeletonsList = new List<BabylonSkeleton>();
             SoundsList = new List<BabylonSound>();
             MorphTargetManagersList = new List<BabylonMorphTargetManager>();
+            NodeMap = new Dictionary<string, BabylonNode>();
+            BabylonToGLTFExtensions = new Dictionary<IBabylonExtensionExporter,Type>();
 
             // Default values
             autoClear = true;

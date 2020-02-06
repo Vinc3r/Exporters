@@ -47,7 +47,8 @@ namespace Max2Babylon
                 ResetChangedTextBoxColors();
 
                 MaxNodeTree.BeginUpdate();
-                MaxNodeTree.QueueSetNodes(info.NodeHandles, false);
+                //here we garanty retrocompatibility
+                MaxNodeTree.QueueSetNodes(info.NodeGuids.ToHandles(), false);
                 List<uint> handles;
                 MaxNodeTree.ApplyQueuedChanges(out handles, false);
                 MaxNodeTree.EndUpdate();
@@ -55,7 +56,7 @@ namespace Max2Babylon
                 // if the nodes changed on max' side, even though the data has not changed, the list may be different (e.g. deleted nodes)
                 // since we haven't loaded the list before, we can't compare it to the node tree
                 // thus, we save it, and the property checks for actual differences (and set isdirty to true)
-                info.NodeHandles = handles;
+                info.NodeGuids = handles.ToGuids();
 
                 if (info.IsDirty)
                 {
@@ -157,8 +158,26 @@ namespace Max2Babylon
             confirmedInfo.FrameStart = newFrameStart;
             confirmedInfo.FrameEnd = newFrameEnd;
 
-            if(nodesChanged)
-                confirmedInfo.NodeHandles = newHandles;
+            if (nodesChanged)
+            {
+                confirmedInfo.NodeGuids = newHandles.ToGuids();
+                if (confirmedInfo.AnimationGroupNodes == null)
+                {
+                    confirmedInfo.AnimationGroupNodes = new List<AnimationGroupNode>();
+                }
+                
+                foreach (uint handle in newHandles)
+                {
+                    IINode node = Loader.Core.GetINodeByHandle(handle);
+                    if (node != null)
+                    {
+                        string name = node.Name;
+                        string parentName = node.ParentNode.Name;
+                        AnimationGroupNode nodeData = new AnimationGroupNode(node.GetGuid(), name, parentName);
+                        confirmedInfo.AnimationGroupNodes.Add(nodeData);
+                    }
+                }
+            }
 
             ResetChangedTextBoxColors();
             MaxNodeTree.SelectedNode = null;
@@ -202,6 +221,14 @@ namespace Max2Babylon
                 MaxNodeTree.QueueRemoveNode(node);
             }
             MaxNodeTree.EndUpdate();
+        }
+
+        private void calculateTimeRangeBtn_Click(object sender, EventArgs e)
+        {
+            if (currentInfo == null)
+                return;
+
+            endTextBox.Text = Tools.CalculateEndFrameFromAnimationGroupNodes(currentInfo).ToString();
         }
     }
 }

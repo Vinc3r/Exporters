@@ -3,9 +3,15 @@ SETLOCAL enabledelayedexpansion
 
 
 SET max_version=%2
+SET exporter_version=%max_version%
 SET max_location=!ADSK_3DSMAX_x64_%max_version%!
 
-SET source_dir="%~dp0%max_version%\bin\%1"
+IF %exporter_version%==2016 SET exporter_version=2015
+
+ECHO "Max version is %max_version%"
+ECHO "Exporter version is %exporter_version%"
+
+SET source_dir="%~dp0%exporter_version%\bin\%1"
 ECHO %source_dir%
 
 IF "%max_location%"=="" (
@@ -15,8 +21,6 @@ IF "%max_location%"=="" (
 
 IF %1=="Debug" GOTO OnDebug
 IF %1=="Release" GOTO OnRelease
-
-
 
 :OnDebug
 SET dest_dir="%max_location%bin\assemblies"
@@ -48,6 +52,15 @@ COPY %source_dir%\TargaImage.dll %dest_dir%\TargaImage.dll
 
 if exist %dest_dir%\TQ.Texture.dll del /f /q %dest_dir%\TQ.Texture.dll
 COPY %source_dir%\TQ.Texture.dll %dest_dir%\TQ.Texture.dll
+
+if exist %dest_dir%\Microsoft.WindowsAPICodePack.dll del /f /q %dest_dir%\Microsoft.WindowsAPICodePack.dll
+COPY %source_dir%\Microsoft.WindowsAPICodePack.dll %dest_dir%\Microsoft.WindowsAPICodePack.dll
+
+if exist %dest_dir%\Microsoft.WindowsAPICodePack.Shell.dll del /f /q %dest_dir%\Microsoft.WindowsAPICodePack.Shell.dll
+COPY %source_dir%\Microsoft.WindowsAPICodePack.Shell.dll %dest_dir%\Microsoft.WindowsAPICodePack.Shell.dll
+
+if exist %dest_dir%\Microsoft.WindowsAPICodePack.ShellExtensions.dll del /f /q %dest_dir%\Microsoft.WindowsAPICodePack.ShellExtensions.dll
+COPY %source_dir%\Microsoft.WindowsAPICodePack.ShellExtensions.dll %dest_dir%\Microsoft.WindowsAPICodePack.ShellExtensions.dll
 
 if exist %dest_dir%\Max2Babylon.dll del /f /q %dest_dir%\Max2Babylon.dll
 COPY %source_dir%\Max2Babylon.dll %dest_dir%\Max2Babylon.dll

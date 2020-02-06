@@ -85,19 +85,28 @@ namespace Maya2Babylon
             // Hierarchy
             ExportHierarchy(babylonCamera, mFnTransform);
 
+            // User custom attributes
+            babylonCamera.metadata = ExportCustomAttributeFromTransform(mFnTransform);
+
             // Position / rotation
             RaiseVerbose("BabylonExporter.Camera | ExportTransform", 2);
             float[] position = null;
             float[] rotationQuaternion = null;
             float[] rotation = null;
             float[] scaling = null;
-            GetTransform(mFnTransform, ref position, ref rotationQuaternion, ref rotation, ref scaling);
+            var rotationOrder = BabylonVector3.EulerRotationOrder.XYZ;
+            GetTransform(mFnTransform, ref position, ref rotationQuaternion, ref rotation, ref rotationOrder, ref scaling);
             babylonCamera.position = position;
+            babylonCamera.scaling = scaling;
             if (_exportQuaternionsInsteadOfEulers)
             {
                 babylonCamera.rotationQuaternion = rotationQuaternion;
             }
-            babylonCamera.rotation = rotation;
+            else
+            {
+                babylonCamera.rotation = rotation;
+            }
+            
 
             // Field of view of babylon is the vertical one
             babylonCamera.fov = (float)mFnCamera.verticalFieldOfView;
@@ -157,7 +166,7 @@ namespace Maya2Babylon
             //babylonCamera.target = new[] { vDir.X, vDir.Y, vDir.Z };
 
             // Animations
-            if (target == null && !_bakeAnimationFrames)
+            if (target == null && !exportParameters.bakeAnimationFrames)
             {
                 ExportNodeAnimation(babylonCamera, mFnTransform);
             }

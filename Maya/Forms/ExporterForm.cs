@@ -4,6 +4,8 @@ using System.Drawing;
 using System.IO;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using BabylonExport.Entities;
+using Utilities;
 
 namespace Maya2Babylon.Forms
 {
@@ -26,7 +28,15 @@ namespace Maya2Babylon.Forms
         const string chkExportMorphTangentProperty = "babylonjs_exportMorphTangent";
         const string chkExportKHRTextureTransformProperty = "babylonjs_exportKHRTextureTransform";
         const string chkExportKHRLightsPunctualProperty = "babylonjs_exportKHRLightsPunctual";
+        const string chkExportKHRMaterialsUnlitProperty = "babylonjs_exportKHRMaterialsUnlit";
         const string chkBakeAnimationFramesProperty = "babylonjs_bakeAnimationFrames";
+        const string chkExportAnimationsProperty = "babylonjs_exportAnimations";
+        const string chkExportAnimationsOnlyProperty = "babylonjs_exportAnimationsOnly";
+
+        const string PBRFullPropertyName = "babylonjs_pbr_full";
+        const string PBRNoLightPropertyName = "babylonjs_pbr_nolight";
+        const string PBREnvironmentPathPropertyName = "babylonjs_pbr_environmentPathProperty";
+        const string PBRDefaultSkyboxName = "babylonjs_pbr_defaultSkybox";
 
         TreeNode currentNode;
         int currentRank;
@@ -37,22 +47,7 @@ namespace Maya2Babylon.Forms
             this.Text = $"Babylon.js - Export scene to babylon or glTF format v{BabylonExporter.exporterVersion}";
 
             // Check if the gltf-pipeline module is installed
-            try
-            {
-                Process gltfPipeline = new Process();
-                gltfPipeline.StartInfo.FileName = "gltf-pipeline.cmd";
-
-                // Hide the cmd window that show the gltf-pipeline result
-                gltfPipeline.StartInfo.UseShellExecute = false;
-                gltfPipeline.StartInfo.CreateNoWindow = true;
-
-                gltfPipeline.Start();
-                gltfPipeline.WaitForExit();
-            }
-            catch
-            {
-                gltfPipelineInstalled = false;
-            }
+            gltfPipelineInstalled = GLTFPipelineUtilities.IsGLTFPipelineInstalled();
 
             groupBox1.MouseMove += groupBox1_MouseMove;
         }
@@ -68,15 +63,22 @@ namespace Maya2Babylon.Forms
             chkAutoSave.Checked = Loader.GetBoolProperty(chkAutoSaveProperty, false);
             chkOptimizeVertices.Checked = Loader.GetBoolProperty(chkOptimizeVerticesProperty, true);
             chkExportTangents.Checked = Loader.GetBoolProperty(chkExportTangentsProperty, true);
-            //chkDracoCompression.Checked = Loader.GetBoolProperty(chkDracoCompressionProperty, false);
+            chkDracoCompression.Checked = Loader.GetBoolProperty(chkDracoCompressionProperty, false);
             chkExportSkin.Checked = Loader.GetBoolProperty(chkExportSkinProperty, true);
             chkExportMorphNormal.Checked = Loader.GetBoolProperty(chkExportMorphNormalProperty, true);
             chkExportMorphTangent.Checked = Loader.GetBoolProperty(chkExportMorphTangentProperty, false);
             chkExportKHRLightsPunctual.Checked = Loader.GetBoolProperty(chkExportKHRTextureTransformProperty, false);
             chkExportKHRTextureTransform.Checked = Loader.GetBoolProperty(chkExportKHRLightsPunctualProperty, false);
+            chkExportKHRMaterialsUnlit.Checked = Loader.GetBoolProperty(chkExportKHRMaterialsUnlitProperty, false);
             chkBakeAnimationFrames.Checked = Loader.GetBoolProperty(chkBakeAnimationFramesProperty, false);
+            chkExportAnimations.Checked = Loader.GetBoolProperty(chkExportAnimationsProperty, true);
+            chkExportAnimationsOnly.Checked = Loader.GetBoolProperty(chkExportAnimationsOnlyProperty, false);
             /* txtFilename.Text = Loader.Core.RootNode.GetLocalData();
             Tools.PrepareComboBox(comboOutputFormat, Loader.Core.RootNode, "babylonjs_outputFormat", "babylon");*/
+
+            chkFullPBR.Checked = Loader.GetBoolProperty(PBRFullPropertyName, false);
+            chkNoAutoLight.Checked = Loader.GetBoolProperty(PBRNoLightPropertyName, false);
+            chkDefaultSkybox.Checked = Loader.GetBoolProperty(PBRDefaultSkyboxName, false);
         }
 
         private void butBrowse_Click(object sender, EventArgs e)
@@ -101,13 +103,20 @@ namespace Maya2Babylon.Forms
             Loader.SetBoolProperty(chkAutoSaveProperty, chkAutoSave.Checked);
             Loader.SetBoolProperty(chkOptimizeVerticesProperty, chkOptimizeVertices.Checked);
             Loader.SetBoolProperty(chkExportTangentsProperty, chkExportTangents.Checked);
-            //Loader.SetBoolProperty(chkDracoCompressionProperty, chkDracoCompression.Checked);
+            Loader.SetBoolProperty(chkDracoCompressionProperty, chkDracoCompression.Checked);
             Loader.SetBoolProperty(chkExportSkinProperty, chkExportSkin.Checked);
             Loader.SetBoolProperty(chkExportMorphNormalProperty, chkExportMorphNormal.Checked);
             Loader.SetBoolProperty(chkExportMorphTangentProperty, chkExportMorphTangent.Checked);
             Loader.SetBoolProperty(chkExportKHRLightsPunctualProperty, chkExportKHRLightsPunctual.Checked);
             Loader.SetBoolProperty(chkExportKHRTextureTransformProperty, chkExportKHRTextureTransform.Checked);
+            Loader.SetBoolProperty(chkExportKHRMaterialsUnlitProperty, chkExportKHRMaterialsUnlit.Checked);
             Loader.SetBoolProperty(chkBakeAnimationFramesProperty, chkBakeAnimationFrames.Checked);
+            Loader.SetBoolProperty(chkExportAnimationsProperty, chkExportAnimations.Checked);
+            Loader.SetBoolProperty(chkExportAnimationsOnlyProperty, chkExportAnimationsOnly.Checked);
+
+            Loader.SetBoolProperty(PBRFullPropertyName, chkFullPBR.Checked);
+            Loader.SetBoolProperty(PBRNoLightPropertyName, chkNoAutoLight.Checked);
+            Loader.SetBoolProperty(PBRDefaultSkyboxName, chkDefaultSkybox.Checked);
 
             /*Tools.UpdateComboBox(comboOutputFormat, Loader.Core.RootNode, "babylonjs_outputFormat");
 
@@ -190,13 +199,55 @@ namespace Maya2Babylon.Forms
             bool success = true;
             try
             {
-                var directoryName = Path.GetDirectoryName(txtFilename.Text);
-                var fileName = Path.GetFileName(txtFilename.Text);
-                exporter.Export(outputDirectory: directoryName, outputFileName: fileName, outputFormat: comboOutputFormat.SelectedItem.ToString(), generateManifest: chkManifest.Checked,
-                                onlySelected: chkOnlySelected.Checked, autoSaveMayaFile: chkAutoSave.Checked, exportHiddenObjects: chkHidden.Checked, copyTexturesToOutput: chkCopyTextures.Checked,
-                                optimizeVertices: chkOptimizeVertices.Checked, exportTangents: chkExportTangents.Checked, scaleFactor: txtScaleFactor.Text, exportSkin: chkExportSkin.Checked,
-                                quality: txtQuality.Text, dracoCompression: chkDracoCompression.Checked, exportMorphNormal: chkExportMorphNormal.Checked, exportMorphTangent: chkExportMorphTangent.Checked, 
-                                exportKHRLightsPunctual: chkExportKHRLightsPunctual.Checked, exportKHRTextureTransform: chkExportKHRTextureTransform.Checked, bakeAnimationFrames: chkBakeAnimationFrames.Checked);
+                var scaleFactorParsed = 1.0f;
+                var textureQualityParsed = 100L;
+                try
+                {
+                    scaleFactorParsed = float.Parse(txtScaleFactor.Text);
+                }
+                catch (Exception e)
+                {
+                    throw new InvalidDataException(String.Format("Invalid Scale Factor value: {0}", txtScaleFactor.Text));
+                }
+                try
+                {
+                    textureQualityParsed = long.Parse(txtQuality.Text);
+                }
+                catch (Exception e)
+                {
+                    throw new InvalidDataException(String.Format("Invalid Texture Quality value: {0}", txtScaleFactor.Text));
+                }
+    
+                var exportParameters = new ExportParameters
+                {
+                    outputPath = txtFilename.Text,
+                    outputFormat = comboOutputFormat.SelectedItem.ToString(),
+                    generateManifest = chkManifest.Checked,
+                    exportOnlySelected = chkOnlySelected.Checked,
+                    autoSaveSceneFile = chkAutoSave.Checked,
+                    exportHiddenObjects = chkHidden.Checked,
+                    writeTextures = chkCopyTextures.Checked,
+                    overwriteTextures = chkCopyTextures.Checked,
+                    optimizeVertices = chkOptimizeVertices.Checked,
+                    exportTangents = chkExportTangents.Checked,
+                    scaleFactor = scaleFactorParsed,
+                    exportSkins = chkExportSkin.Checked,
+                    txtQuality = textureQualityParsed,
+                    dracoCompression = chkDracoCompression.Checked,
+                    exportMorphNormals = chkExportMorphNormal.Checked,
+                    exportMorphTangents = chkExportMorphTangent.Checked,
+                    enableKHRLightsPunctual = chkExportKHRLightsPunctual.Checked,
+                    enableKHRTextureTransform = chkExportKHRTextureTransform.Checked,
+                    enableKHRMaterialsUnlit = chkExportKHRMaterialsUnlit.Checked,
+                    bakeAnimationFrames = chkBakeAnimationFrames.Checked,
+                    exportAnimations = chkExportAnimations.Checked,
+                    exportAnimationsOnly = chkExportAnimationsOnly.Checked,
+                    pbrFull = chkFullPBR.Checked,
+                    pbrNoLight = chkNoAutoLight.Checked,
+                    createDefaultSkybox = chkDefaultSkybox.Checked,
+                    pbrEnvironment = txtEnvironmentName.Text
+                };
+                exporter.Export(exportParameters);
             }
             catch (OperationCanceledException)
             {
@@ -205,9 +256,10 @@ namespace Maya2Babylon.Forms
             }
             catch (Exception ex)
             {
-                currentNode = CreateTreeNode(0, "Export cancelled: " + ex.Message + " " + ex.StackTrace, Color.Red);
-
+                currentNode = CreateTreeNode(0, "Export cancelled: " + ex.Message, Color.Red);
+                currentNode = CreateTreeNode(1, ex.ToString(), Color.Red);
                 currentNode.EnsureVisible();
+
                 progressBar.Value = 0;
                 success = false;
             }
@@ -291,6 +343,15 @@ namespace Maya2Babylon.Forms
             exporter.IsCancelled = true;
         }
 
+        private void butCopyToClipboard_Click(object sender, EventArgs e)
+        {
+            var textString = treeView.ToPrettyString();
+            if (textString != string.Empty)
+            {
+                System.Windows.Forms.Clipboard.SetText(textString);
+            }
+        }
+
         private void ExporterForm_Activated(object sender, EventArgs e)
         {
             /*Loader.Global.DisableAccelerators();*/
@@ -330,16 +391,39 @@ namespace Maya2Babylon.Forms
                     this.saveFileDialog.Filter = "Babylon files|*.babylon";
                     chkDracoCompression.Checked = false;
                     chkDracoCompression.Enabled = false;
+                    chkNoAutoLight.Enabled = true;
+                    chkFullPBR.Enabled = true;
+                    chkDefaultSkybox.Enabled = true;
+                    butEnvironmentPath.Enabled = true;
+                    txtEnvironmentName.Enabled = true;
                     break;
                 case "gltf":
                     this.saveFileDialog.DefaultExt = "gltf";
                     this.saveFileDialog.Filter = "glTF files|*.gltf";
                     chkDracoCompression.Enabled = gltfPipelineInstalled;
+                    chkNoAutoLight.Enabled = false;
+                    chkNoAutoLight.Checked = false;
+                    chkFullPBR.Enabled = false;
+                    chkFullPBR.Checked = false;
+                    chkDefaultSkybox.Enabled = false;
+                    chkDefaultSkybox.Checked = false;
+                    butEnvironmentPath.Enabled = false;
+                    txtEnvironmentName.Enabled = false;
+                    txtEnvironmentName.Text = string.Empty;
                     break;
                 case "glb":
                     this.saveFileDialog.DefaultExt = "glb";
                     this.saveFileDialog.Filter = "glb files|*.glb";
                     chkDracoCompression.Enabled = gltfPipelineInstalled;
+                    chkNoAutoLight.Enabled = false;
+                    chkNoAutoLight.Checked = false;
+                    chkFullPBR.Enabled = false;
+                    chkFullPBR.Checked = false;
+                    chkDefaultSkybox.Enabled = false;
+                    chkDefaultSkybox.Checked = false;
+                    butEnvironmentPath.Enabled = false;
+                    txtEnvironmentName.Enabled = false;
+                    txtEnvironmentName.Text = string.Empty;
                     break;
             }
             this.txtFilename.Text = Path.ChangeExtension(this.txtFilename.Text, this.saveFileDialog.DefaultExt);
@@ -387,6 +471,14 @@ namespace Maya2Babylon.Forms
         private void label6_Click(object sender, EventArgs e)
         {
 
+        }
+
+        private void butEnvironmentPath_Click(object sender, EventArgs e)
+        {
+            if (envFileDialog.ShowDialog() == DialogResult.OK)
+            {
+                txtEnvironmentName.Text = envFileDialog.FileName;
+            }
         }
     }
 }

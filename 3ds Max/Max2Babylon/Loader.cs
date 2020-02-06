@@ -8,6 +8,7 @@ namespace Max2Babylon
 {
     public class Loader
     {
+
         public static IGlobal Global
         {
             get
@@ -15,6 +16,48 @@ namespace Max2Babylon
                 return GlobalInterface.Instance;
             }
         }
+
+        public static IInterface_ID EditablePoly
+        {
+            get
+            {
+                return  Global.Interface_ID.Create(0x092779, 0x634020);
+            }
+        }
+
+        /// <summary>
+        /// Gets the NodeLayerProperties interface
+        /// </summary>
+        public static IInterface_ID NodeLayerProperties
+        {
+            get
+            {
+                return Global.Interface_ID.Create(0x44e025f8, 0x6b071e44);
+
+            }
+        }
+
+        /// <summary>
+        /// Gets the Function-Published layer manager.
+        /// </summary>
+        public static IIFPLayerManager IIFPLayerManager
+        {
+            get 
+            {
+                IInterface_ID iIFPLayerManagerID = Global.Interface_ID.Create((uint)BuiltInInterfaceIDA.LAYERMANAGER_INTERFACE,(uint)BuiltInInterfaceIDB.LAYERMANAGER_INTERFACE);
+                return (IIFPLayerManager) Global.GetCOREInterface(iIFPLayerManagerID);
+            }
+        }
+
+        public static IIObjXRefManager8 IIObjXRefManager
+        {
+            get
+            {
+                return Loader.Global.IObjXRefManager8.Instance;
+
+            }
+        }
+
 
         public static IInterface14 Core
         {

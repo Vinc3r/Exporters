@@ -78,6 +78,7 @@ namespace Maya2Babylon
             {
                 name = Path.GetFileNameWithoutExtension(sourcePath) + "." + validImageFormat
             };
+            babylonTexture.name = babylonTexture.name.Replace(":", "_");
 
             // Level
             babylonTexture.level = amount;
@@ -201,7 +202,7 @@ namespace Maya2Babylon
             babylonTexture.hasAlpha = useOpacityMap;
             babylonTexture.getAlphaFromRGB = false;
 
-            if (CopyTexturesToOutput)
+            if (exportParameters.writeTextures)
             {
                 // Load bitmaps
                 var baseColorBitmap = LoadTexture(sourcePath);
@@ -279,6 +280,7 @@ namespace Maya2Babylon
                        (roughnessTextureDependencyNode != null ? roughnessTextureDependencyNode.name : ("" + (int)(defaultRoughness * 255))) +
                        (metallicTextureDependencyNode != null ? metallicTextureDependencyNode.name : ("" + (int)(defaultMetallic * 255))) + ".jpg" // TODO - unsafe name, may conflict with another texture name
             };
+            babylonTexture.name = babylonTexture.name.Replace(":", "_");
 
             // UVs
             _exportUV(textureDependencyNode, babylonTexture);
@@ -298,7 +300,7 @@ namespace Maya2Babylon
 
 
             // --- Merge metallic, roughness, ambient occlusion maps ---
-            if (CopyTexturesToOutput)
+            if (exportParameters.writeTextures)
             {
                 // Load bitmaps
                 var metallicBitmap = LoadTexture(metallicTextureDependencyNode);
@@ -329,6 +331,85 @@ namespace Maya2Babylon
             return babylonTexture;
         }
 
+        private BabylonTexture ExportCoatTexture(MFnDependencyNode intensityTextureDependencyNode, MFnDependencyNode roughnessTextureDependencyNode, BabylonScene babylonScene, string materialName, float intensity, float roughness)
+        {
+            // Prints
+            if (intensityTextureDependencyNode != null)
+            {
+                Print(intensityTextureDependencyNode, logRankTexture, "Print ExportCoatTexture intensityTextureDependencyNode");
+            }
+            if (roughnessTextureDependencyNode != null)
+            {
+                Print(roughnessTextureDependencyNode, logRankTexture, "Print ExportCoatTexture roughnessTextureDependencyNode");
+            }
+
+            // Use one as a reference for UVs parameters
+            var textureDependencyNode = intensityTextureDependencyNode != null ? intensityTextureDependencyNode : roughnessTextureDependencyNode;
+            if (textureDependencyNode == null)
+            {
+                return null;
+            }
+
+            var id = textureDependencyNode.uuid().asString();
+            var babylonTexture = new BabylonTexture(id)
+            {
+                name = materialName + "_coat" + ".jpg" // TODO - unsafe name, may conflict with another texture name
+            };
+            babylonTexture.name = babylonTexture.name.Replace(":", "_");
+
+            // Level
+            babylonTexture.level = 1.0f;
+
+            // Alpha
+            babylonTexture.hasAlpha = false;
+            babylonTexture.getAlphaFromRGB = false;
+
+            // UVs
+            _exportUV(textureDependencyNode, babylonTexture);
+
+            // Is cube
+            string sourcePath = getSourcePathFromFileTexture(textureDependencyNode);
+            if (sourcePath == null)
+            {
+                return null;
+            }
+            if (sourcePath == "")
+            {
+                RaiseError("Texture path is missing.", logRankTexture + 1);
+                return null;
+            }
+            _exportIsCube(sourcePath, babylonTexture, false);
+
+
+            // --- Merge base color and opacity maps ---
+
+            if (exportParameters.writeTextures)
+            {
+                // Load bitmaps
+                var intensityBitmap = LoadTexture(intensityTextureDependencyNode);
+                var roughnessBitmap = LoadTexture(roughnessTextureDependencyNode);
+
+                // Merge bitmaps
+                Bitmap[] bitmaps = new Bitmap[] { intensityBitmap, roughnessBitmap, null, null };
+                int[] defaultValues = new int[] { (int)(intensity * 255), (int)(roughness * 255), 0, 1 };
+                Bitmap coatBitmap = MergeBitmaps(bitmaps, defaultValues, "Coat intensity and roughness");
+                
+                // Write bitmap
+                if (isBabylonExported)
+                {
+                    RaiseMessage($"Texture | write image '{babylonTexture.name}'", logRankTexture + 1);
+                    SaveBitmap(coatBitmap, babylonScene.OutputPath, babylonTexture.name, System.Drawing.Imaging.ImageFormat.Jpeg);
+                }
+                else
+                {
+                    // Store created bitmap for further use in gltf export
+                    babylonTexture.bitmap = coatBitmap;
+                }
+            }
+
+            return babylonTexture;
+        }
+
         private BabylonTexture ExportBaseColorAlphaTexture(MFnDependencyNode baseColorTextureDependencyNode, MFnDependencyNode opacityTextureDependencyNode, BabylonScene babylonScene, string materialName, Color defaultBaseColor, float defaultOpacity = 1.0f)
         {
             // Prints
@@ -353,6 +434,7 @@ namespace Maya2Babylon
             {
                 name = materialName + "_baseColor" + ".png" // TODO - unsafe name, may conflict with another texture name
             };
+            babylonTexture.name = babylonTexture.name.Replace(":", "_");
 
             // Level
             babylonTexture.level = 1.0f;
@@ -380,7 +462,7 @@ namespace Maya2Babylon
 
             // --- Merge base color and opacity maps ---
 
-            if (CopyTexturesToOutput)
+            if (exportParameters.writeTextures)
             {
                 // Load bitmaps
                 var baseColorBitmap = LoadTexture(baseColorTextureDependencyNode);
@@ -389,7 +471,8 @@ namespace Maya2Babylon
                 // Merge bitmaps
                 Bitmap[] bitmaps = new Bitmap[] { baseColorBitmap, baseColorBitmap, baseColorBitmap, opacityBitmap };
                 int[] defaultValues = new int[] { defaultBaseColor.R, defaultBaseColor.G, defaultBaseColor.B, (int)(defaultOpacity * 255) };
-                Bitmap baseColorAlphaBitmap = MergeBitmaps(bitmaps, defaultValues, "Base color and opacity");
+                bool isAlphaFromRGB = opacityTextureDependencyNode != null && !opacityTextureDependencyNode.findPlug("fileHasAlpha").asBool();
+                Bitmap baseColorAlphaBitmap = MergeBitmaps(bitmaps, defaultValues, "Base color and opacity", isAlphaFromRGB);
 
                 // Write bitmap
                 if (isBabylonExported)
@@ -639,7 +722,24 @@ namespace Maya2Babylon
 
             if (mPlug == null || mPlug.isNull || !mPlug.isConnected)
             {
-                return null;
+                // a compound plug connected to a non-compound plug may not be marked as connected, try to get a child plug:
+                if (mPlug.isCompound)
+                {
+                    // Retrieve the first non-empty plug and use the texture connected to it.
+                    for (uint i = 0; i < mPlug.numChildren; i++)
+                    {
+                        MPlug child = mPlug.child(i);
+                        if (child == null || child.isNull || !child.isConnected)
+                            continue;
+                        mPlug = child;
+                        break;
+                    }
+                }
+
+                if (mPlug == null || mPlug.isNull || !mPlug.isConnected)
+                {
+                    return null;
+                }
             }
 
             MObject sourceObject = mPlug.source.node;
@@ -835,7 +935,7 @@ namespace Maya2Babylon
         /// <param name="invalidFormats"></param>
         private void _copyTexture(string sourcePath, string destPath, List<string> validFormats, List<string> invalidFormats)
         {
-            if (CopyTexturesToOutput)
+            if (exportParameters.writeTextures)
             {
                 try
                 {
@@ -955,7 +1055,7 @@ namespace Maya2Babylon
                 {
                     // Create an Encoder object based on the GUID for the Quality parameter category
                     EncoderParameters encoderParameters = new EncoderParameters(1);
-                    EncoderParameter encoderQualityParameter = new EncoderParameter(Encoder.Quality, _quality);
+                    EncoderParameter encoderQualityParameter = new EncoderParameter(Encoder.Quality, exportParameters.txtQuality);
                     encoderParameters.Param[0] = encoderQualityParameter;
 
                     bitmap.Save(fs, encoder, encoderParameters);
@@ -1000,8 +1100,9 @@ namespace Maya2Babylon
         /// <param name="bitmaps">R, G, B, A bitmaps to merge</param>
         /// <param name="defaultValues">Default R, G, B, A values if related bitmap is null. Base 255.</param>
         /// <param name="sizeErrorMessage">Map names to display when maps don't have same size</param>
+        /// <param name="isAlphaFromRGB">True if the resulting bitmap alpha is retreive from R channel of input bitmap</param>
         /// <returns></returns>
-        private Bitmap MergeBitmaps(Bitmap[] bitmaps, int[] defaultValues, string sizeErrorMessage)
+        private Bitmap MergeBitmaps(Bitmap[] bitmaps, int[] defaultValues, string sizeErrorMessage, bool isAlphaFromRGB = false)
         {
             // Retreive dimensions
             int width = 0;
@@ -1021,7 +1122,7 @@ namespace Maya2Babylon
                     var r = bitmaps[0] != null ? bitmaps[0].GetPixel(x, y).R : defaultValues[0];
                     var g = bitmaps[1] != null ? bitmaps[1].GetPixel(x, y).G : defaultValues[1];
                     var b = bitmaps[2] != null ? bitmaps[2].GetPixel(x, y).B : defaultValues[2];
-                    var a = bitmaps[3] != null ? bitmaps[3].GetPixel(x, y).A : defaultValues[3];
+                    var a = bitmaps[3] != null ? (isAlphaFromRGB ? bitmaps[3].GetPixel(x, y).R : bitmaps[3].GetPixel(x, y).A) : defaultValues[3];
                     mergedBitmap.SetPixel(x, y, Color.FromArgb(a, r, g, b));
                 }
             }

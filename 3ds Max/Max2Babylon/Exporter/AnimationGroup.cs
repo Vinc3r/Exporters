@@ -2,28 +2,31 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Runtime.Serialization;
 using System.Text;
 using System.Windows.Forms;
 using Autodesk.Max;
 using Autodesk.Max.Plugins;
 using Newtonsoft.Json;
+using Utilities;
 
 namespace Max2Babylon
 {
+
     [DataContract]
     public class AnimationGroupNode
     {
         [DataMember]
-        public uint Handle { get; set; }
+        public Guid Guid { get; set; } 
         [DataMember]
         public string Name { get; set; }
         [DataMember]
         public string ParentName { get; set; }
 
-        public AnimationGroupNode(uint _handle, string _name, string _parentName)
+        public AnimationGroupNode(Guid _guid, string _name, string _parentName)
         {
-            Handle = _handle;
+            Guid = _guid;
             Name = _name;
             ParentName = _parentName;
         }
@@ -61,7 +64,7 @@ namespace Max2Babylon
         }
         public int FrameStart
         {
-            get { return Tools.RoundToInt(ticksStart / (float)Loader.Global.TicksPerFrame); }
+            get { return MathUtilities.RoundToInt(ticksStart / (float)Loader.Global.TicksPerFrame); }
             set
             {
                 if (value.Equals(FrameStart)) // property getter
@@ -72,7 +75,7 @@ namespace Max2Babylon
         }
         public int FrameEnd
         {
-            get { return Tools.RoundToInt(TicksEnd / (float)Loader.Global.TicksPerFrame); }
+            get { return MathUtilities.RoundToInt(TicksEnd / (float)Loader.Global.TicksPerFrame); }
             set
             {
                 if (value.Equals(FrameEnd)) // property getter
@@ -85,20 +88,19 @@ namespace Max2Babylon
         [DataMember]
         public List<AnimationGroupNode> AnimationGroupNodes {get; set;}
 
-        
-        public IList<uint> NodeHandles
+        public IList<Guid> NodeGuids
         {
-            get { return nodeHandles.AsReadOnly(); }
+            get { return nodeGuids.AsReadOnly(); }
             set
             {
                 // if the lists are equal, return early so isdirty is not touched
-                if (nodeHandles.Count == value.Count)
+                if (nodeGuids.Count == value.Count)
                 {
                     bool equal = true;
                     int i = 0;
-                    foreach(uint newNodeHandle in value)
+                    foreach (Guid newNodeGuid in value)
                     {
-                        if(!newNodeHandle.Equals(nodeHandles[i]))
+                        if (!newNodeGuid.Equals(nodeGuids[i]))
                         {
                             equal = false;
                             break;
@@ -110,8 +112,8 @@ namespace Max2Babylon
                 }
 
                 IsDirty = true;
-                nodeHandles.Clear();
-                nodeHandles.AddRange(value);
+                nodeGuids.Clear();
+                nodeGuids.AddRange(value);
             }
         }
 
@@ -141,7 +143,7 @@ namespace Max2Babylon
         private string name = "Animation";
         // use current timeline frame range by default
 
-        private List<uint> nodeHandles = new List<uint>();
+        private List<Guid> nodeGuids = new List<Guid>();
 
         public AnimationGroup() { }
         public AnimationGroup(AnimationGroup other)
@@ -154,8 +156,14 @@ namespace Max2Babylon
             name = other.name;
             TicksStart = other.TicksStart;
             TicksEnd = other.TicksEnd;
-            nodeHandles.Clear();
-            nodeHandles.AddRange(other.nodeHandles);
+            nodeGuids.Clear();
+            nodeGuids.AddRange(other.nodeGuids);
+            IsDirty = true;
+        }
+
+        public void MergeFrom(AnimationGroup other)
+        {
+            nodeGuids.AddRange(other.nodeGuids);
             IsDirty = true;
         }
 
@@ -168,13 +176,13 @@ namespace Max2Babylon
 
         public string GetPropertyName() { return serializedId.ToString(); }
 
-        public void LoadFromData(string propertyName)
+        public void LoadFromData(string propertyName,IINode dataNode)
         {
             if (!Guid.TryParse(propertyName, out serializedId))
                 throw new Exception("Invalid ID, can't deserialize.");
 
             string propertiesString = string.Empty;
-            if (!Loader.Core.RootNode.GetUserPropString(propertyName, ref propertiesString))
+            if (!dataNode.GetUserPropString(propertyName, ref propertiesString))
                 return;
 
             string[] properties = propertiesString.Split(s_PropertySeparator);
@@ -196,28 +204,41 @@ namespace Max2Babylon
                 return;
 
             int numNodeIDs = properties.Length - 3;
-            if (nodeHandles.Capacity < numNodeIDs) nodeHandles.Capacity = numNodeIDs;
+            if (nodeGuids.Capacity < numNodeIDs) nodeGuids.Capacity = numNodeIDs;
             int numFailed = 0;
+
             for (int i = 0; i < numNodeIDs; ++i)
             {
-                uint id;
-                if (!uint.TryParse(properties[3 + i], out id))
+                Guid guid;
+                if (!Guid.TryParse(properties[3 + i], out guid))
                 {
-                    ++numFailed;
-                    continue;
+                    uint id;
+                    if (!uint.TryParse(properties[3 + i], out id))
+                    {
+                        ++numFailed;
+                        continue;
+                    }
+                    //node is serialized in the old way ,force the reassignation of a new Guid on
+                    IINode node = Loader.Core.GetINodeByHandle(id);
+                    if (node != null)
+                    {
+                        guid= node.GetGuid();
+                    }
                 }
-                nodeHandles.Add(id);
+                nodeGuids.Add(guid);
+                
             }
 
             AnimationGroupNodes = new List<AnimationGroupNode>();
-            foreach (uint nodeHandle in nodeHandles)
+            foreach (Guid nodeGuid in nodeGuids)
             {
-                var node = Loader.Core.GetINodeByHandle(nodeHandle);
+                IINode node = Tools.GetINodeByGuid(nodeGuid);
+
                 if (node != null)
                 {
                     string name = node.Name;
-                    string parentName = Loader.Core.GetINodeByHandle(nodeHandle).ParentNode.Name;
-                    AnimationGroupNode nodeData = new AnimationGroupNode(nodeHandle, name, parentName);
+                    string parentName = node.ParentNode.Name;
+                    AnimationGroupNode nodeData = new AnimationGroupNode(nodeGuid, name, parentName);
                     AnimationGroupNodes.Add(nodeData);
                 }
             }
@@ -228,24 +249,26 @@ namespace Max2Babylon
             IsDirty = false;
         }
 
-        public void SaveToData()
+        public void SaveToData(IINode dataNode = null)
         {
+            dataNode = dataNode ?? Loader.Core.RootNode;
             // ' ' and '=' are not allowed by max, ';' is our data separator
             if (name.Contains(' ') || name.Contains('=') || name.Contains(s_PropertySeparator))
                 throw new FormatException("Invalid character(s) in animation Name: " + name + ". Spaces, equal signs and the separator '" + s_PropertySeparator + "' are not allowed.");
 
-            string nodes = string.Join(s_PropertySeparator.ToString(), nodeHandles);
+            string nodes = string.Join(s_PropertySeparator.ToString(), nodeGuids);
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.AppendFormat(s_PropertyFormat, name, TicksStart, TicksEnd, nodes);
 
-            Loader.Core.RootNode.SetStringProperty(GetPropertyName(), stringBuilder.ToString());
+            dataNode.SetStringProperty(GetPropertyName(), stringBuilder.ToString());
 
             IsDirty = false;
         }
 
-        public void DeleteFromData()
+        public void DeleteFromData(IINode dataNode = null)
         {
-            Loader.Core.RootNode.DeleteProperty(GetPropertyName());
+            dataNode = dataNode ?? Loader.Core.RootNode;
+            dataNode.DeleteProperty(GetPropertyName());
             IsDirty = true;
         }
 
@@ -256,9 +279,16 @@ namespace Max2Babylon
     {
         const string s_AnimationListPropertyName = "babylonjs_AnimationList";
 
-        public void LoadFromData()
+        public AnimationGroup GetAnimationGroupByName(string name)
         {
-            string[] animationPropertyNames = Loader.Core.RootNode.GetStringArrayProperty(s_AnimationListPropertyName);
+            return this.First(animationGroup => animationGroup.Name == name);
+        }
+
+        public void LoadFromData(IINode dataNode = null)
+        {
+            dataNode = dataNode ?? Loader.Core.RootNode;
+
+            string[] animationPropertyNames = dataNode.GetStringArrayProperty(s_AnimationListPropertyName);
 
             if (Capacity < animationPropertyNames.Length)
                 Capacity = animationPropertyNames.Length;
@@ -266,22 +296,76 @@ namespace Max2Babylon
             foreach (string propertyNameStr in animationPropertyNames)
             {
                 AnimationGroup info = new AnimationGroup();
-                info.LoadFromData(propertyNameStr);
+                info.LoadFromData(propertyNameStr,dataNode);
                 Add(info);
             }
         }
 
-        public void SaveToData()
+        public static AnimationGroupList InitAnimationGroups(ILoggingProvider logger)
         {
+            AnimationGroupList animationList = new AnimationGroupList();
+            animationList.LoadFromData(Loader.Core.RootNode);
+
+            if (animationList.Count > 0)
+            {
+                int timelineStart = Loader.Core.AnimRange.Start / Loader.Global.TicksPerFrame;
+                int timelineEnd = Loader.Core.AnimRange.End / Loader.Global.TicksPerFrame;
+
+                foreach (AnimationGroup animGroup in animationList)
+                {
+                    // ensure min <= start <= end <= max
+                    List<string> warnings = new List<string>();
+                    if (animGroup.FrameStart < timelineStart || animGroup.FrameStart > timelineEnd)
+                    {
+                        warnings.Add("Start frame '" + animGroup.FrameStart + "' outside of timeline range [" + timelineStart + ", " + timelineEnd + "]. Set to timeline start time '" + timelineStart + "'");
+                        animGroup.FrameStart = timelineStart;
+                    }
+                    if (animGroup.FrameEnd < timelineStart || animGroup.FrameEnd > timelineEnd)
+                    {
+                        warnings.Add("End frame '" + animGroup.FrameEnd + "' outside of timeline range [" + timelineStart + ", " + timelineEnd + "]. Set to timeline end time '" + timelineEnd + "'");
+                        animGroup.FrameEnd = timelineEnd;
+                    }
+                    if (animGroup.FrameEnd <= animGroup.FrameStart)
+                    {
+                        if (animGroup.FrameEnd < animGroup.FrameStart)
+                            // Strict
+                            warnings.Add("End frame '" + animGroup.FrameEnd + "' lower than Start frame '" + animGroup.FrameStart + "'. Start frame set to timeline start time '" + timelineStart + "'. End frame set to timeline end time '" + timelineEnd + "'.");
+                        else
+                            // Equal
+                            warnings.Add("End frame '" + animGroup.FrameEnd + "' equal to Start frame '" + animGroup.FrameStart + "'. Single frame animation are not allowed. Start frame set to timeline start time '" + timelineStart + "'. End frame set to timeline end time '" + timelineEnd + "'.");
+
+                        animGroup.FrameStart = timelineStart;
+                        animGroup.FrameEnd = timelineEnd;
+                    }
+
+                    // Print animation group warnings if any
+                    // Nothing printed otherwise
+                    if (warnings.Count > 0)
+                    {
+                        logger.RaiseWarning(animGroup.Name, 1);
+                        foreach (string warning in warnings)
+                        {
+                            logger.RaiseWarning(warning, 2);
+                        }
+                    }
+                }
+            }
+
+            return animationList;
+        }
+
+        public void SaveToData(IINode dataNode = null)
+        {
+            dataNode = dataNode ?? Loader.Core.RootNode;
             List<string> animationPropertyNameList = new List<string>();
             for(int i = 0; i < Count; ++i)
             {
                 if(this[i].IsDirty)
-                    this[i].SaveToData();
+                    this[i].SaveToData(dataNode);
                 animationPropertyNameList.Add(this[i].GetPropertyName());
             }
             
-            Loader.Core.RootNode.SetStringArrayProperty(s_AnimationListPropertyName, animationPropertyNameList);
+            dataNode.SetStringArrayProperty(s_AnimationListPropertyName, animationPropertyNameList);
         }
 
         public void SaveToJson(string filePath, List<AnimationGroup> exportList)
@@ -303,7 +387,7 @@ namespace Max2Babylon
 
             foreach (AnimationGroup animData in animationGroupsData)
             {
-                List<uint> nodeHandles = new List<uint>();
+                List<Guid> nodeGuids = new List<Guid>();
                 
                 if (animData.AnimationGroupNodes != null)
                 {
@@ -319,7 +403,7 @@ namespace Max2Babylon
                         if (node == null)
                         {
                             //node is missing
-                            missingNodes += node.Name + "\n";
+                            missingNodes += nodeData.Name + "\n";
                             continue;
                         }
 
@@ -330,26 +414,26 @@ namespace Max2Babylon
                             continue;
                         }
 
-                        nodeHandles.Add(node.Handle);
+                        nodeGuids.Add(node.GetGuid());
                     }
 
                     if (!string.IsNullOrEmpty(movedNodes))
                     {
                         //skip restoration of evaluated animation group
-                        nodeHandles = new List<uint>();
+                        nodeGuids = new List<Guid>();
                         MessageBox.Show(string.Format("{0} has been moved in hierarchy,{1} import skipped", movedNodes, animData.Name));
                     }
 
                     if (!string.IsNullOrEmpty(missingNodes))
                     {
                         //skip restoration of evaluated animation group
-                        nodeHandles = new List<uint>();
+                        nodeGuids = new List<Guid>();
                         MessageBox.Show(string.Format("{0} does not exist,{1} import skipped", missingNodes, animData.Name));
                     }
                 }
 
-                animData.NodeHandles = nodeHandles;
-                string nodes = string.Join(AnimationGroup.s_PropertySeparator.ToString(), animData.NodeHandles);
+                animData.NodeGuids = nodeGuids;
+                string nodes = string.Join(AnimationGroup.s_PropertySeparator.ToString(), animData.NodeGuids);
                 
                 StringBuilder stringBuilder = new StringBuilder();
                 stringBuilder.AppendFormat(AnimationGroup.s_PropertyFormat, animData.Name, animData.TicksStart, animData.TicksEnd, nodes);
@@ -379,8 +463,232 @@ namespace Max2Babylon
 
             Loader.Core.RootNode.SetStringArrayProperty(s_AnimationListPropertyName, animationPropertyNameList);
 
-            LoadFromData();
+            LoadFromData(Loader.Core.RootNode);
             
+        }
+
+        public static void SaveDataToAnimationHelper()
+        {
+            AnimationGroupList animationGroupList = new AnimationGroupList();
+            animationGroupList.LoadFromData(Loader.Core.RootNode);
+
+            List<string> animationPropertyNameList = new List<string>();
+            var helper = Tools.BabylonAnimationHelper();
+            foreach (AnimationGroup animationGroup in animationGroupList)
+            {
+                string prop = Loader.Core.RootNode.GetStringProperty(animationGroup.GetPropertyName(),"");
+                helper.SetStringProperty(animationGroup.GetPropertyName(), prop);
+                animationPropertyNameList.Add(animationGroup.GetPropertyName());
+            }
+
+            if (animationPropertyNameList.Count > 0)
+            {
+                helper.SetStringArrayProperty(s_AnimationListPropertyName, animationPropertyNameList);
+            }
+        }
+
+        public static void SaveDataToContainerHelper(IIContainerObject iContainerObject)
+        {
+            if (!iContainerObject.IsOpen)
+            {
+                MessageBox.Show("Animations of " + iContainerObject.ContainerNode.Name +" cannot be saved because Container is closed");
+                return;
+            }
+
+            AnimationGroupList animationGroupList = new AnimationGroupList();
+            animationGroupList.LoadFromData(Loader.Core.RootNode);
+
+            RemoveDataOnContainer(iContainerObject); //cleanup for a new serialization
+            List<string> animationPropertyNameList = new List<string>();
+            foreach (AnimationGroup animationGroup in animationGroupList)
+            {
+                IIContainerObject containerObject = animationGroup.NodeGuids.InSameContainer();
+                if (containerObject!=null && containerObject.ContainerNode.Handle == iContainerObject.ContainerNode.Handle)
+                {
+                    string prop = Loader.Core.RootNode.GetStringProperty(animationGroup.GetPropertyName(),"");
+                    containerObject.BabylonContainerHelper().SetStringProperty(animationGroup.GetPropertyName(), prop);
+                    animationPropertyNameList.Add(animationGroup.GetPropertyName());
+                }
+            }
+
+            if (animationPropertyNameList.Count > 0)
+            {
+                iContainerObject.BabylonContainerHelper().SetStringArrayProperty(s_AnimationListPropertyName, animationPropertyNameList);
+            }
+        }
+
+        public static void LoadDataFromAnimationHelpers()
+        {
+            AnimationGroupList sceneAnimationGroupList = new AnimationGroupList();
+            sceneAnimationGroupList.LoadFromData();
+
+            foreach (IINode node in Loader.Core.RootNode.DirectChildren())
+            {
+                if (node.IsBabylonAnimationHelper())
+                {
+                    AnimationGroupList helperAnimationGroupList = new AnimationGroupList();
+                    helperAnimationGroupList.LoadFromData(node);
+
+                    //merge
+                    foreach (AnimationGroup animationGroup in helperAnimationGroupList)
+                    {
+                        AnimationGroup toMerge = sceneAnimationGroupList.Find(a => a.Name==animationGroup.Name);
+                        if (toMerge != null)
+                        {
+                            toMerge.MergeFrom(animationGroup);
+                        }
+                        else
+                        {
+                            AnimationGroup newAnimationGroup = new AnimationGroup();
+                            newAnimationGroup.DeepCopyFrom(animationGroup);
+                            sceneAnimationGroupList.Add(newAnimationGroup);
+                        }
+                    }
+                }
+            }
+            sceneAnimationGroupList.SaveToData();
+            Loader.Global.SetSaveRequiredFlag(true, false);
+        }
+
+
+        public static void LoadDataFromAllContainers()
+        {
+            List<IIContainerObject> containers = Tools.GetAllContainers();
+            if (containers.Count<=0) return;
+
+            foreach (IIContainerObject iContainerObject in containers)
+            {
+                LoadDataFromContainerHelper(iContainerObject);
+            }
+        }
+
+        public static void LoadDataFromContainerHelper(IIContainerObject iContainerObject)
+        {
+            if (!iContainerObject.IsOpen)
+            {
+                MessageBox.Show("Animations of " + iContainerObject.ContainerNode.Name +" cannot be loaded because Container is closed");
+                return;
+            }
+
+            ResolveMultipleInheritedContainer(iContainerObject);
+
+            //on container added in scene try retrieve info from containers
+            string[] sceneAnimationPropertyNames = Loader.Core.RootNode.GetStringArrayProperty(s_AnimationListPropertyName);
+            string[] containerAnimationPropertyNames = iContainerObject.BabylonContainerHelper().GetStringArrayProperty(s_AnimationListPropertyName);
+            string[] mergedAnimationPropertyNames = sceneAnimationPropertyNames.Concat(containerAnimationPropertyNames).Distinct().ToArray();
+
+            Loader.Core.RootNode.SetStringArrayProperty(s_AnimationListPropertyName, mergedAnimationPropertyNames);
+
+            foreach (string propertyNameStr in containerAnimationPropertyNames)
+            {
+                //copy
+                string prop = iContainerObject.BabylonContainerHelper().GetStringProperty(propertyNameStr,"");
+                Loader.Core.RootNode.SetStringProperty(propertyNameStr, prop);
+            }
+        }
+
+        
+        private static void ResolveMultipleInheritedContainer(IIContainerObject container)
+        {
+            string helperPropBuffer = string.Empty;
+            container.BabylonContainerHelper().GetUserPropBuffer(ref helperPropBuffer);
+
+            List<IINode> containerHierarchy = new List<IINode>() { container.ContainerNode };
+            containerHierarchy.AddRange(container.ContainerNode.ContainerNodeTree(false));
+
+            int containerID = 1;
+            container.ContainerNode.GetUserPropInt("babylonjs_ContainerID", ref containerID);
+
+            //the first istance of the multiples containers, the one without _ID_*
+            //mContainer ->referenceBrotherContainer
+            //mContainer_ID_2
+            int idIndex = container.ContainerNode.Name.IndexOf("_ID_");
+            if(idIndex<0) return;
+            string refBrotherName = container.ContainerNode.Name.Substring(0,idIndex);
+            IINode refBrotherContainerObject = Loader.Core.GetINodeByName(refBrotherName);
+            //if there is no brother, there is nothing to resolve
+            if(refBrotherContainerObject==null) return;
+
+
+            //manage multiple containers inherithed from the same source
+            foreach (IINode n in containerHierarchy)
+            {
+                if (n.IsBabylonContainerHelper()) continue;
+
+                //change the guid of the node
+                //replace the guid in the babylon helper
+                string oldGuid = n.GetStringProperty("babylonjs_GUID",Guid.NewGuid().ToString());
+                n.DeleteProperty("babylonjs_GUID");
+                Guid newGuid = n.GetGuid();
+                helperPropBuffer = helperPropBuffer.Replace(oldGuid, newGuid.ToString());
+
+                if (containerID > 1 && !n.Name.EndsWith("_ID_" +containerID))
+                {
+                    string originalName = n.Name;
+                    n.Name = $"{n.Name}_ID_{containerID}";
+                    IINode source = refBrotherContainerObject.FindChildNode(originalName);
+                    IMtl mat = source.Mtl;
+                    if (mat != null)
+                    {
+                        n.Mtl = mat;
+                    }
+                }
+            }
+
+            //replace animationList guid to have distinct list of AnimationGroup for each container
+            string animationListStr = string.Empty;
+            container.BabylonContainerHelper().GetUserPropString(s_AnimationListPropertyName, ref animationListStr);
+            if (!string.IsNullOrEmpty(animationListStr))
+            {
+                string[] animationGroupGuid = animationListStr.Split(AnimationGroup.s_PropertySeparator);
+                foreach (string guidStr in animationGroupGuid)
+                {
+                    Guid newAnimGroupGuid = Guid.NewGuid();
+                    helperPropBuffer = helperPropBuffer.Replace(guidStr, newAnimGroupGuid.ToString());
+                }
+            
+                container.BabylonContainerHelper().SetUserPropBuffer(helperPropBuffer);
+
+                //add ID of container to animationGroup name to identify animation in viewer
+                container.BabylonContainerHelper().GetUserPropString(s_AnimationListPropertyName, ref animationListStr);
+                string[] newAnimationGroupGuid = animationListStr.Split(AnimationGroup.s_PropertySeparator);
+                
+                if (containerID > 1)
+                {
+                    foreach (string guidStr in newAnimationGroupGuid)
+                    {
+                        string propertiesString = string.Empty;
+                        if (!container.BabylonContainerHelper().GetUserPropString(guidStr, ref propertiesString))
+                            return;
+
+                        string[] properties = propertiesString.Split(AnimationGroup.s_PropertySeparator);
+                        if (properties.Length < 4)
+                            throw new Exception("Invalid number of properties, can't deserialize.");
+
+                        string name = properties[0];
+                        if (!string.IsNullOrEmpty(name) && !name.EndsWith("_ID_" + containerID))
+                        {
+                            propertiesString = propertiesString.Replace(name, name + "_ID_" + containerID);
+                            container.BabylonContainerHelper().SetUserPropString(guidStr, propertiesString);
+                        }
+                    }
+                }
+            }
+        }
+
+
+
+        public static void RemoveDataOnContainer(IIContainerObject containerObject)
+        {
+            //remove all property related to animation group 
+            string[] animationPropertyNames =containerObject.BabylonContainerHelper().GetStringArrayProperty(s_AnimationListPropertyName);
+
+            foreach (string propertyNameStr in animationPropertyNames)
+            {
+                containerObject.BabylonContainerHelper().DeleteProperty(propertyNameStr);
+            }
+
+            containerObject.BabylonContainerHelper().DeleteProperty(s_AnimationListPropertyName);
         }
     }
 }

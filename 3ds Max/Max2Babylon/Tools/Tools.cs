@@ -1,15 +1,16 @@
 ﻿using Autodesk.Max;
-using BabylonExport.Entities;
 using Max2Babylon.Extensions;
 using SharpDX;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows.Forms;
+using Color = System.Drawing.Color;
 
 namespace Max2Babylon
 {
@@ -41,100 +42,7 @@ namespace Max2Babylon
             }
         }
 
-        #region Math
-
-        public static float Lerp(float min, float max, float t)
-        {
-            return min + (max - min) * t;
-        }
-
-        public static int RoundToInt(float f)
-        {
-            return Convert.ToInt32(Math.Round(f, MidpointRounding.AwayFromZero));
-        }
-
-        /**
-         * Computes a texture transform matrix with a pre-transformation
-         */
-        public static BabylonMatrix ComputeTextureTransformMatrix(BabylonVector3 pivotCenter , BabylonVector3 offset, BabylonQuaternion rotation, BabylonVector3 scale)
-        {
-            var dOffset = new BabylonVector3();
-            var dRotation = new BabylonQuaternion();
-            var dScale = new BabylonVector3();
-            offset.X *= scale.X;
-            offset.Y *= scale.Y;
-            offset.Z *= 0;
-
-            var transformMatrix = BabylonMatrix.Translation(new BabylonVector3(-pivotCenter.X, -pivotCenter.Y, 0)).multiply(BabylonMatrix.Compose(scale, rotation, offset)).multiply(BabylonMatrix.Translation(pivotCenter));
-            return transformMatrix;
-        }
-
-        #endregion
-
-        #region Array
-
-        public static T[] SubArray<T>(T[] array, int startIndex, int count)
-        {
-            var result = new T[count];
-            for (int i = 0; i < count; i++)
-            {
-                result[i] = array[startIndex + i];
-            }
-            return result;
-        }
-
-        public static T[] SubArrayFromEntity<T>(T[] array, int startEntityIndex, int count)
-        {
-            return SubArray(array, startEntityIndex * count, count);
-        }
-
-        public static string ToString<T>(this T[] array, bool withBrackets = true)
-        {
-            if (array == null)
-            {
-                return "";
-            }
-
-            var result = "";
-            if (array.Length > 0)
-            {
-                result += array[0];
-                for (int i = 1; i < array.Length; i++)
-                {
-                    result += ", " + array[i];
-                }
-            }
-
-            if (withBrackets)
-            {
-                result = "[" + result + "]";
-            }
-            return result;
-        }
-
-        public static float[] Multiply(this float[] array, float[] array2)
-        {
-            float[] res = new float[array.Length];
-            for (int index = 0; index < array.Length; index++)
-            {
-                res[index] = array[index] * array2[index];
-            }
-            return res;
-        }
-
-        public static float[] Multiply(this float[] array, float value)
-        {
-            float[] res = new float[array.Length];
-            for (int index = 0; index < array.Length; index++)
-            {
-                res[index] = array[index] * value;
-            }
-            return res;
-        }
-
-        #endregion
-
-        #region IIPropertyContainer
+        #region IIGameProperty
 
         public static string GetStringProperty(this IIGameProperty property)
         {
@@ -175,6 +83,48 @@ namespace Max2Babylon
             property.GetPropertyValue(value, 0);
             return value;
         }
+
+        #endregion
+
+        #region IIPropertyContainer
+
+        public static string GetStringProperty(this IIPropertyContainer propertyContainer, string propName, string defaultValue = null)
+        {
+            IIGameProperty gameProperty = propertyContainer.QueryProperty(propName);
+            return gameProperty != null ? gameProperty.GetStringProperty() : defaultValue;
+        }
+
+        public static int GetIntProperty(this IIPropertyContainer propertyContainer, string propName, int defaultValue = 0)
+        {
+            IIGameProperty gameProperty = propertyContainer.QueryProperty(propName);
+            return gameProperty != null ? gameProperty.GetIntValue() : defaultValue;
+        }
+
+        public static bool GetBoolProperty(this IIPropertyContainer propertyContainer, string propName, bool defaultValue = false)
+        {
+            IIGameProperty gameProperty = propertyContainer.QueryProperty(propName);
+            return gameProperty != null ? gameProperty.GetBoolValue() : defaultValue;
+        }
+
+        public static float GetFloatProperty(this IIPropertyContainer propertyContainer, string propName, float defaultValue = 0f)
+        {
+            IIGameProperty gameProperty = propertyContainer.QueryProperty(propName);
+            return gameProperty != null ? gameProperty.GetFloatValue() : defaultValue;
+        }
+
+        public static IPoint3 GetPoint3Property(this IIPropertyContainer propertyContainer, string propName, IPoint3 defaultValue = null)
+        {
+            IIGameProperty gameProperty = propertyContainer.QueryProperty(propName);
+            return gameProperty != null ? gameProperty.GetPoint3Property() : defaultValue;
+        }
+
+        public static IPoint4 GetPoint4Property(this IIPropertyContainer propertyContainer, string propName, IPoint4 defaultValue = null)
+        {
+            IIGameProperty gameProperty = propertyContainer.QueryProperty(propName);
+            return gameProperty != null ? gameProperty.GetPoint4Property() : defaultValue;
+        }
+
+        // ---
 
         public static string GetStringProperty(this IIPropertyContainer propertyContainer, int indexProperty)
         {
@@ -220,6 +170,27 @@ namespace Max2Babylon
         static Assembly GetWrappersAssembly()
         {
             return Assembly.Load("Autodesk.Max.Wrappers, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null");
+        }
+
+        public struct VersionNumber
+        {
+            public int Major;
+            public int Minor;
+            public int Revision;
+            public int BuildNumber;
+        }
+ 
+        public static VersionNumber GetMaxVersion()
+        {
+            // https://getcoreinterface.typepad.com/blog/2017/02/querying-the-3ds-max-version.html
+            var versionString = ManagedServices.MaxscriptSDK.ExecuteStringMaxscriptQuery("getFileVersion \"$max/3dsmax.exe\"");
+            var versionSplit = versionString.Split(',');
+            int major, minor, revision, buildNumber = 0;
+            int.TryParse(versionSplit[0], out major);
+            int.TryParse(versionSplit[1], out minor);
+            int.TryParse(versionSplit[2], out revision);
+            int.TryParse(versionSplit[3], out buildNumber);
+            return new VersionNumber { Major = major, Minor = minor, Revision = revision, BuildNumber = buildNumber };
         }
 
         public static IIGameCamera AsGameCamera(this IIGameObject obj)
@@ -473,6 +444,47 @@ namespace Max2Babylon
             return Loader.Global.Point3.Create(value.X, value.Y, value.Z);
         }
 
+        public static IPoint2 Clone(this IPoint2 value)
+        {
+            return Loader.Global.Point2.Create(value.X, value.Y);
+        }
+
+        public static IPoint3 Clone(this IPoint3 value)
+        {
+            return Loader.Global.Point3.Create(value.X, value.Y, value.Z);
+        }
+
+        public static IPoint4 Clone(this IPoint4 value)
+        {
+            return Loader.Global.Point4.Create(value.X, value.Y, value.Z, value.W);
+        }
+
+        public static float[] Clone2(this float[] value)
+        {
+            if (value == null)
+            {
+                return null;
+            }
+            return value.ToList().ToArray();
+        }
+
+        public static float[] MultiplyBy(this float[] array, float value)
+        {
+            if (array == null)
+            {
+                return null;
+            }
+            else
+            {
+                float[] result = new float[array.Length];
+                for (int i = 0; i < array.Length; i++)
+                {
+                    result[i] = array[i] * value;
+                }
+                return result;
+            }
+        }
+
         public static Vector3 ToVector3(this IPoint3 value)
         {
             return new Vector3(value.X, value.Y, value.Z);
@@ -522,6 +534,15 @@ namespace Max2Babylon
             return new[] { value.R, value.G, value.B };
         }
 
+        public static IEnumerable<IINode> DirectChildren(this IINode node)
+        {
+            List<IINode> children = new List<IINode>();
+            for (int i = 0; i < node.NumberOfChildren; ++i)
+                if (node.GetChildNode(i) != null)
+                    children.Add(node.GetChildNode(i));
+            return children;
+        }
+
         public static IEnumerable<IINode> Nodes(this IINode node)
         {
             for (int i = 0; i < node.NumberOfChildren; ++i)
@@ -558,6 +579,24 @@ namespace Max2Babylon
             return null;
         }
 
+        public static IINode FindChildNode(this IINode node, string nodeName)
+        {
+            foreach (IINode childNode in node.NodeTree())
+                if (childNode.Name == nodeName)
+                    return childNode;
+
+            return null;
+        }
+
+        public static IINode FindChildNode(this IINode node, Guid nodeGuid)
+        {
+            foreach (IINode childNode in node.NodeTree())
+                if (childNode.GetGuid().Equals(nodeGuid))
+                    return childNode;
+
+            return null;
+        }
+
         /// <summary>
         /// Convert horizontal FOV to vertical FOV using default aspect ratio
         /// </summary>
@@ -589,59 +628,7 @@ namespace Max2Babylon
         {
             node.AddAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 1, new byte[] { 1 });
         }
-
-        public static IDictionary<Guid, IAnimatable> guids = new Dictionary<Guid, IAnimatable>();
-
-        public static Guid GetGuid(this IAnimatable node)
-        {
-            var uidData = node.GetAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0);
-            Guid uid;
-
-            // If current node already has a uid
-            if (uidData != null)
-            {
-                uid = new Guid(uidData.Data);
-
-                if (guids.ContainsKey(uid))
-                {
-                    // If the uid is already used by another node
-                    // This should be very rare, but it is possible:
-                    // - when merging max scenes?
-                    // - when cloning IAnimatable objects?
-                    // - when exporting old assets that were created before GUID uniqueness was checked
-                    // - when exporting parts of a scene separately, creating equal guids, and after that exporting them together
-                    // All of the above problems disappear after exporting AGAIN, because the GUIDs will be unique then.
-                    if (guids[uid].Equals(node as IInterfaceServer) == false)
-                    {
-                        // Remove old uid
-                        node.RemoveAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0);
-                        // Create a new uid for current node
-                        uid = Guid.NewGuid();
-                        guids.Add(uid, node);
-                        node.AddAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0, uid.ToByteArray());
-                    }
-                }
-                else
-                {
-                    guids.Add(uid, node);
-                }
-            }
-            else
-            {
-                uid = Guid.NewGuid();
-                // verify that we create a unique guid
-                // there is still a possibility for a guid conflict:
-                //   e.g. when we export parts of the scene separately an equal Guid can be generated...
-                // only after re-exporting again after that will all guids be unique...
-                while (guids.ContainsKey(uid))
-                    uid = Guid.NewGuid();
-                guids.Add(uid, node);
-                node.AddAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0, uid.ToByteArray());
-            }
-
-            return uid;
-        }
-
+        
         public static string GetLocalData(this IAnimatable node)
         {
             var uidData = node.GetAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 1);
@@ -716,29 +703,7 @@ namespace Max2Babylon
 
             return obj.ConvertToType(0, triObjectClassId) as ITriObject;
         }
-        public static bool IsAlmostEqualTo(this float[] current, float[] other, float epsilon)
-        {
-            if (current == null && other == null)
-            {
-                return true;
-            }
-            if (current == null || other == null)
-            {
-                return false;
-            }
-            if (current.Length != other.Length)
-            {
-                return false;
-            }
-            for (var i = 0; i < current.Length; ++i)
-            {
-                if (Math.Abs(current[i] - other[i]) > epsilon)
-                {
-                    return false;
-                }
-            }
-            return true;
-        }
+        
         public static bool IsAlmostEqualTo(this IPoint4 current, IPoint4 other, float epsilon)
         {
             if (Math.Abs(current.X - other.X) > epsilon)
@@ -799,9 +764,525 @@ namespace Max2Babylon
             return true;
         }
 
-        #endregion
+        public static bool IsNodeTreeAnimated(this IINode node)
+        {
+            if (node.IsAnimated) return true;
+            foreach (IINode n in node.NodeTree())
+            {
+                if (n.IsAnimated) return true;
+            }
 
-        #region UserProperties
+            return false;
+        }
+
+
+        public static void RemoveFlattenModification()
+        {
+            List<IINode> toDelete = new List<IINode>();
+            foreach (IINode node in Loader.Core.RootNode.NodeTree())
+            {
+                node.DeleteProperty("babylonjs_flattened");
+                if (node.GetBoolProperty("babylonjs_flatteningTemp"))
+                {
+                    toDelete.Add(node);
+                }
+            }
+
+            foreach (IINode iNode in toDelete)
+            {
+                Loader.Core.DeleteNode(iNode, false, true);
+            }
+        }
+
+
+        public static IINode FlattenHierarchy(this IINode node)
+        {
+            string activeLayer =$"(LayerManager.getLayerFromName (maxOps.getNodeByHandle {node.Handle}).layer.name).current = true";
+            ScriptsUtilities.ExecuteMaxScriptCommand(activeLayer);
+            node.SetUserPropBool("babylonjs_flattened", true);
+            node.NodeTree().ToList().ForEach(x => x.SetUserPropBool("babylonjs_flattened",true));
+            IClass_ID cid = Loader.Global.Class_ID.Create((uint)BuiltInClassIDA.SPHERE_CLASS_ID, 0);
+            object obj = Loader.Core.CreateInstance(SClass_ID.Geomobject, cid as IClass_ID);
+            IINode result = Loader.Core.CreateObjectNode((IObject)obj);
+            result.Name = node.Name;
+            result.SetTMController(node.TMController);
+            string scale = $"scale (maxOps.getNodeByHandle {result.Handle}) [0.1,0.1,0.1]";
+            ScriptsUtilities.ExecuteMaxScriptCommand(scale);
+            result.ResetTransform(Loader.Core.Time,true);
+            string convertToEditablePoly = $"ConvertTo (maxOps.getNodeByHandle {result.Handle}) Editable_Poly";
+            ScriptsUtilities.ExecuteMaxScriptCommand(convertToEditablePoly);
+
+            IPolyObject polyObject = result.GetPolyObjectFromNode();
+            IEPoly nodeEPoly = (IEPoly)polyObject.GetInterface(Loader.EditablePoly);
+
+#if MAX2020
+            IINodeTab toflatten = Loader.Global.INodeTab.Create();
+            IINodeTab resultTarget = Loader.Global.INodeTab.Create();
+#else
+            IINodeTab toflatten = Loader.Global.NodeTab.Create();
+            IINodeTab resultTarget = Loader.Global.NodeTab.Create();
+#endif
+            toflatten.AppendNode(node,false,1);
+
+            var offset = Loader.Global.Point3.Create(0, 0, 0);
+            Loader.Core.CloneNodes(toflatten, offset, true, CloneType.Copy, null, resultTarget);
+
+            bool undo = false;
+            for (int i = 0; i < resultTarget.Count; i++)
+            {
+#if MAX2015
+                IINode n = resultTarget[(IntPtr)i];
+#else
+                IINode n = resultTarget[i];
+#endif
+                Loader.Core.RootNode.AttachChild(n,true);
+                if (n.GetPolyObjectFromNode() == null)
+                {
+                    Loader.Core.DeleteNode(n, false, false);
+                    continue;
+                }
+                n.ResetTransform(Loader.Core.Time, false);
+                nodeEPoly.EpfnAttach(n, ref undo, result, Loader.Core.Time);
+            }
+
+            result.SetUserPropBool("babylonjs_flatteningTemp",true);
+
+            return result;
+        }
+
+        public static bool IsSkinned(this IINode node)
+        {
+            IIDerivedObject derivedObject = node.ActualINode.ObjectRef as IIDerivedObject;
+
+            if (derivedObject == null)
+            {
+                return false;
+            }
+
+            for (int index = 0; index < derivedObject.NumModifiers; index++)
+            {
+                IModifier modifier = derivedObject.GetModifier(index);
+                if (modifier.ClassID.PartA == 9815843 && modifier.ClassID.PartB == 87654) // Skin
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+#endregion
+
+#region GUID
+
+        public static void UnloadAllContainers()
+        {
+            foreach (IIContainerObject iContainerObject in GetAllContainers())
+            {
+                bool unload = iContainerObject.UnloadContainer;
+            }
+        }
+
+        
+
+        public static bool IsNodeSelected(this IINode node)
+        {
+#if MAX2020
+            IINodeTab selection = Loader.Global.INodeTab.Create();
+#else
+            IINodeTab selection = Loader.Global.INodeTabNS.Create();
+#endif
+            Loader.Core.GetSelNodeTab(selection);
+            return selection.Contains(node);
+        }
+
+
+        public static bool IsMarkedAsNotFlattenable(this IINode node)
+        {
+            return node.GetBoolProperty("babylonjs_DoNotFlatten");
+        }
+
+        public static bool IsMarkedAsObjectToBakeAnimation(this IINode node)
+        {
+            return node.GetBoolProperty("babylonjs_BakeAnimation");
+        }
+
+        public static  IIContainerObject GetContainer(this IList<Guid> guids)
+        {
+            foreach (Guid guid in guids)
+            {
+                IINode node = GetINodeByGuid(guid);
+                IIContainerObject containerObject = Loader.Global.ContainerManagerInterface.IsInContainer(node);
+                if (containerObject != null)
+                {
+                    return containerObject;
+                }
+            }
+            return null;
+        }
+
+        public static  IIContainerObject GetContainer(this IList<uint> handles)
+        {
+            foreach (uint handle in handles)
+            {
+                IINode node = Loader.Core.GetINodeByHandle(handle);
+                IIContainerObject containerObject = Loader.Global.ContainerManagerInterface.IsInContainer(node);
+                if (containerObject != null)
+                {
+                    return containerObject;
+                }
+            }
+            return null;
+        }
+
+        public static List<IIContainerObject> GetContainerInSelection()
+        {
+#if MAX2020
+            IINodeTab selection = Loader.Global.INodeTab.Create();
+#else
+            IINodeTab selection = Loader.Global.INodeTabNS.Create();
+#endif
+            Loader.Core.GetSelNodeTab(selection);
+            List<IIContainerObject> selectedContainers = new List<IIContainerObject>();
+
+            for (int i = 0; i < selection.Count; i++)
+            {
+#if MAX2015
+                var selectedNode = selection[(IntPtr)i];
+#else
+                var selectedNode = selection[i];
+#endif
+
+                IIContainerObject containerObject = Loader.Global.ContainerManagerInterface.IsContainerNode(selectedNode);
+                if (containerObject != null)
+                {
+                    selectedContainers.Add(containerObject);
+                }
+            }
+
+            return selectedContainers;
+        }
+
+        public static IIContainerObject InSameContainer(this IList<Guid> guids)
+        {
+            List<IIContainerObject> containers = new List<IIContainerObject>();
+            foreach (Guid guid in guids)
+            {
+                IINode node = GetINodeByGuid(guid);
+                IIContainerObject containerObject = Loader.Global.ContainerManagerInterface.IsInContainer(node);
+                if (containerObject != null)
+                {
+                    if (!containers.Contains(containerObject))
+                    {
+                        containers.Add(containerObject);
+                    }
+                }
+            }
+
+            if (containers.Count == 1)
+            {
+                return containers[0];
+            }
+            return null;
+        }
+
+        public static List<IIContainerObject> GetAllContainers()
+        {
+            List<IIContainerObject> containersList = new List<IIContainerObject>();
+            foreach (IINode node in Loader.Core.RootNode.NodeTree())
+            {
+                IIContainerObject containerObject = Loader.Global.ContainerManagerInterface.IsContainerNode(node);
+                if (containerObject != null)
+                {
+                    containersList.Add(containerObject);
+                }
+            }
+            return containersList;
+        }
+
+        public static List<IINode> ContainerNodeTree(this IINode containerNode, bool includeSubContainer)
+        {
+            List<IINode> containersChildren = new List<IINode>();
+
+            foreach (IINode x in containerNode.Nodes())
+            {
+                IIContainerObject nestedContainerObject =Loader.Global.ContainerManagerInterface.IsContainerNode(x);
+                if (nestedContainerObject != null)
+                {
+                    if (includeSubContainer)
+                    {
+                        containersChildren.AddRange(ContainerNodeTree(nestedContainerObject.ContainerNode, includeSubContainer));
+                    }
+                }
+                else
+                {
+                    containersChildren.Add(x);
+                    containersChildren.AddRange(ContainerNodeTree(x,includeSubContainer));
+                }
+            }
+
+            return containersChildren;
+        }
+
+        private static IIContainerObject GetConflictingContainer(this IIContainerObject container)
+        {
+            string guidStr = container.ContainerNode.GetStringProperty("babylonjs_GUID",Guid.NewGuid().ToString());
+            List<IIContainerObject> containers = GetAllContainers();
+            foreach (IIContainerObject iContainerObject in containers)
+            {
+                if (container.ContainerNode.Handle == iContainerObject.ContainerNode.Handle) continue;
+                string compareGuid = iContainerObject.ContainerNode.GetStringProperty("babylonjs_GUID",Guid.NewGuid().ToString());
+                if (compareGuid == guidStr && iContainerObject.ContainerNode.Name == container.ContainerNode.Name)
+                {
+                    return iContainerObject;
+                }
+            }
+            return null;
+        }   
+
+
+        public static void ResolveContainer(this IIContainerObject container)
+        {
+            guids = new Dictionary<Guid, IAnimatable>();
+            int id = 2;
+            while (container.GetConflictingContainer()!=null) //container with same guid  && same name exist)
+            {
+                bool hasID = Regex.IsMatch(container.ContainerNode.Name, @"_ID_\d+");
+                if (hasID)
+                {
+                    int index = container.ContainerNode.Name.LastIndexOf("_");
+                    string containerName = container.ContainerNode.Name.Remove(index + 1);
+                    containerName = containerName + id;
+                    container.ContainerNode.Name = containerName;
+                }
+                else
+                {
+                    container.ContainerNode.Name = container.ContainerNode.Name + "_ID_" + id;
+                }
+                container.ContainerNode.SetUserPropInt("babylonjs_ContainerID",id);
+                id++;
+            }
+        }
+
+        public static IINode BabylonAnimationHelper()
+        {
+            IINode babylonHelper = null;
+            foreach (IINode directChild in Loader.Core.RootNode.DirectChildren())
+            {
+                if (directChild.IsBabylonAnimationHelper())
+                {
+                    babylonHelper = directChild;
+                }
+            }
+
+            if (babylonHelper == null)
+            {
+                IDummyObject dummy = Loader.Global.DummyObject.Create();
+                babylonHelper = Loader.Core.CreateObjectNode(dummy, $"BabylonAnimationHelper_{Random.Next(0,99999)}");
+                babylonHelper.SetUserPropBool("babylonjs_AnimationHelper",true);
+            }
+
+            return babylonHelper;
+        }
+
+
+        public static IINode BabylonContainerHelper(this IIContainerObject containerObject)
+        {
+            IINode babylonHelper = null;
+            foreach (IINode directChild in containerObject.ContainerNode.DirectChildren())
+            {
+                if (directChild.IsBabylonContainerHelper())
+                {
+                    babylonHelper = directChild;
+                }
+            }
+
+            if (babylonHelper == null)
+            {
+                IDummyObject dummy = Loader.Global.DummyObject.Create();
+                babylonHelper = Loader.Core.CreateObjectNode(dummy, $"BabylonContainerHelper_{Random.Next(0,99999)}");
+                babylonHelper.SetUserPropBool("babylonjs_ContainerHelper",true);
+
+                Loader.Core.SetQuietMode(true);
+                containerObject.ContainerNode.AttachChild(babylonHelper,false);
+                Loader.Core.SetQuietMode(false);
+                containerObject.AddNodeToContent(babylonHelper);
+            }
+            return babylonHelper;
+        }
+
+        public static bool IsBabylonAnimationHelper(this IINode node)
+        {
+            return node.GetBoolProperty("babylonjs_AnimationHelper", 0);
+        }
+
+        public static bool IsBabylonContainerHelper(this IINode node)
+        {
+            //to keep retrocompatibility
+            if (node.Name == "BabylonAnimationHelper")
+            {
+                node.Name = $"BabylonContainerHelper_{Random.Next(0, 99999)}";
+                node.SetUserPropBool("babylonjs_ContainerHelper",true);
+            }
+
+            return node.GetBoolProperty("babylonjs_ContainerHelper", 0);
+        }
+
+        public static List<Guid> ToGuids(this IList<uint> handles)
+        {
+            List<Guid> guids = new List<Guid>();
+            foreach (uint handle in handles)
+            {
+                IINode node = Loader.Core.GetINodeByHandle(handle);
+                Guid guid = node.GetGuid();
+                guids.Add(guid);
+            }
+            return guids;
+        }
+
+        public static List<uint> ToHandles(this IList<Guid> guids)
+        {
+            List<uint> handles = new List<uint>();
+            foreach (Guid guid in guids)
+            {
+                IINode node = GetINodeByGuid(guid);
+                if (node != null)
+                {
+                    handles.Add(node.Handle);
+                }
+            }
+            return handles;
+        }
+
+        public static IDictionary<Guid, IAnimatable> guids = new Dictionary<Guid, IAnimatable>();
+
+        public static IINode GetINodeByGuid(Guid guid)
+        {
+            if (guid.Equals(Guid.Empty)) return null;
+            IAnimatable result = null;
+            guids.TryGetValue(guid,out result);
+            return result as IINode;
+        }
+
+        public static void InitializeGuidNodesMap()
+        {
+            IINode root = Loader.Core.RootNode;
+            foreach (IINode iNode in root.NodeTree())
+            {
+                iNode.GetGuid();
+            }
+        }
+
+        public static Guid GetGuid<T>(this T animatable) where T: IAnimatable
+        {
+            if (animatable is IINode)
+            {
+                IINode node = (IINode) animatable;
+                return node.GetIINodeGuid();
+            }
+
+            return animatable.GetIAnimatableGuid();
+        }
+
+
+        private static Guid GetIINodeGuid(this IINode node)
+        {
+            Guid guid = Guid.Empty;
+            Guid.TryParse(node.GetStringProperty("babylonjs_GUID", string.Empty), out guid);
+            if (guid != Guid.Empty)
+            {
+                if (guids.ContainsKey(guid))
+                {
+                    // If the uid is already used by another node
+                    // This should be very rare, but it is possible:
+                    // - when merging max scenes?
+                    // - when cloning IAnimatable objects?
+                    // - when exporting old assets that were created before GUID uniqueness was checked
+                    // - when exporting parts of a scene separately, creating equal guids, and after that exporting them together
+                    // All of the above problems disappear after exporting AGAIN, because the GUIDs will be unique then.
+                    if (guids[guid].Equals(node as IInterfaceServer) == false)
+                    {
+                        // Create a new uid for current node
+                        guid = Guid.NewGuid();
+                        guids.Add(guid, node);
+                        node.SetStringProperty("babylonjs_GUID", guid.ToString());
+                    }
+                }
+                else
+                {
+                    guids.Add(guid, node);
+                }
+            }
+            else
+            {
+                guid = Guid.NewGuid();
+                // verify that we create a unique guid
+                // there is still a possibility for a guid conflict:
+                // e.g. when we export parts of the scene separately an equal Guid can be generated...
+                // only after re-exporting again after that will all guids be unique...
+                while (guids.ContainsKey(guid))
+                {
+                    guid = Guid.NewGuid();
+                }
+                guids.Add(guid, node);
+                node.SetStringProperty("babylonjs_GUID", guid.ToString());
+            }
+            return guid;
+        }
+
+        private static Guid GetIAnimatableGuid(this IAnimatable animatable)
+        {
+            //use the appdatachank method
+            var uidData = animatable.GetAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0);
+            Guid uid;
+
+            // If current node already has a uid
+            if (uidData != null)
+            {
+                uid = new Guid(uidData.Data);
+
+                if (guids.ContainsKey(uid))
+                {
+                    // If the uid is already used by another node
+                    // This should be very rare, but it is possible:
+                    // - when merging max scenes?
+                    // - when cloning IAnimatable objects?
+                    // - when exporting old assets that were created before GUID uniqueness was checked
+                    // - when exporting parts of a scene separately, creating equal guids, and after that exporting them together
+                    // All of the above problems disappear after exporting AGAIN, because the GUIDs will be unique then.
+                    if (guids[uid].Equals(animatable as IInterfaceServer) == false)
+                    {
+                        // Remove old uid
+                        animatable.RemoveAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0);
+                        // Create a new uid for current node
+                        uid = Guid.NewGuid();
+                        guids.Add(uid, animatable);
+                        animatable.AddAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0, uid.ToByteArray());
+                    }
+                }
+                else
+                {
+                    guids.Add(uid, animatable);
+                }
+            }
+            else
+            {
+                uid = Guid.NewGuid();
+                // verify that we create a unique guid
+                // there is still a possibility for a guid conflict:
+                //   e.g. when we export parts of the scene separately an equal Guid can be generated...
+                // only after re-exporting again after that will all guids be unique...
+                while (guids.ContainsKey(uid))
+                    uid = Guid.NewGuid();
+                guids.Add(uid, animatable);
+                animatable.AddAppDataChunk(Loader.Class_ID, SClass_ID.Basenode, 0, uid.ToByteArray());
+            }
+            return uid;
+        }
+#endregion
+
+
+#region UserProperties
 
         public static void SetStringProperty(this IINode node, string propertyName, string defaultState)
         {
@@ -888,6 +1369,37 @@ namespace Max2Babylon
             node.SetStringProperty(propertyName, builder.ToString());
         }
 
+
+        public static void SetDictionaryProperty<T1, T2>(this IINode node, string propertyName, IDictionary<T1,T2> stringDictionary)
+        {
+            //myProp = "key:value";"key:value"
+            StringBuilder builder = new StringBuilder();
+            bool first = true;           
+
+            foreach (KeyValuePair<T1, T2> keyValue in stringDictionary)
+            {
+                if (first) first = false;
+                else builder.Append(';');
+
+                builder.AppendFormat("{0}:{1}",keyValue.Key.ToString(),keyValue.Value.ToString());
+            }
+
+            node.SetStringProperty(propertyName, builder.ToString());
+        }
+
+        public static Dictionary<string, string> GetDictionaryProperty(this IINode node, string propertyName)
+        {
+            Dictionary<string, string> result = new Dictionary<string, string>();
+            string stringDictionaryProp = node.GetStringProperty(propertyName, string.Empty);
+            string[] stringkeyValuePairs = stringDictionaryProp.Split(';');
+            foreach (string pair in stringkeyValuePairs)
+            {
+                string[] p = pair.Split(':');
+                result.Add(p[0], p[1]);
+            }
+            return result;
+        }
+
         /// <summary>
         /// Removes all properties with the given name found in the UserBuffer. Returns true if a property was found and removed.
         /// </summary>
@@ -931,9 +1443,58 @@ namespace Max2Babylon
             return false;
         }
 
-        #endregion
+#endregion
 
-        #region Windows.Forms.Control Serialization
+#region AnimationGroup Helpers
+        public static int CalculateEndFrameFromAnimationGroupNodes(AnimationGroup animationGroup)
+        {
+            int endFrame = 0;
+            foreach (Guid nodeGuid in animationGroup.NodeGuids)
+            {
+                IINode node = Tools.GetINodeByGuid(nodeGuid);
+                if (node.IsAnimated && node.TMController != null)
+                {
+                    int lastKey = 0;
+                    if (node.TMController.PositionController != null && node.TMController.PositionController.NumKeys>0 )
+                    {
+                        int posKeys = node.TMController.PositionController.NumKeys;
+                        lastKey = Math.Max(lastKey, node.TMController.PositionController.GetKeyTime(posKeys - 1));
+                        
+                    }
+
+                    if (node.TMController.RotationController != null && node.TMController.RotationController.NumKeys>0)
+                    {
+                        int rotKeys = node.TMController.RotationController.NumKeys;
+                        lastKey = Math.Max(lastKey, node.TMController.RotationController.GetKeyTime(rotKeys - 1));
+                    }
+
+                    if (node.TMController.ScaleController != null && node.TMController.ScaleController.NumKeys>0)
+                    {
+                        int scaleKeys = node.TMController.ScaleController.NumKeys;
+                        lastKey = Math.Max(lastKey, node.TMController.ScaleController.GetKeyTime(scaleKeys - 1));
+                    }
+                    decimal keyTime = Decimal.Ceiling(lastKey / 160);
+                    endFrame = Math.Max(endFrame, Decimal.ToInt32(keyTime));
+                }
+            }
+
+            return (endFrame!=0)? endFrame : animationGroup.FrameEnd;
+        }
+
+        public static bool IsInAnimationGroups(this IINode node, AnimationGroupList animationGroupList)
+        {
+            foreach (AnimationGroup animationGroup in animationGroupList)
+            {
+                if (animationGroup.NodeGuids.Contains(node.GetIINodeGuid())) return true;
+            }
+
+            return false;
+        }
+
+#endregion
+
+
+#region Windows.Forms.Control Serialization
 
         public static bool PrepareCheckBox(CheckBox checkBox, IINode node, string propertyName, int defaultState = 0)
         {
@@ -993,6 +1554,11 @@ namespace Max2Babylon
         public static void PrepareComboBox(ComboBox comboBox, IINode node, string propertyName, string defaultValue)
         {
             comboBox.SelectedItem = node.GetStringProperty(propertyName, defaultValue);
+        }
+
+        public static void PrepareComboBox(ComboBox comboBox, IINode node, string propertyName, int defaultValue)
+        {
+            comboBox.SelectedIndex = (int)node.GetFloatProperty(propertyName,defaultValue);
         }
 
         public static void UpdateCheckBox(CheckBox checkBox, IINode node, string propertyName)
@@ -1071,6 +1637,12 @@ namespace Max2Babylon
             node.SetUserPropString(propertyName, value);
         }
 
+        public static void UpdateComboBoxByIndex(ComboBox comboBox, IINode node, string propertyName)
+        {
+            var value = comboBox.SelectedIndex;
+            node.SetUserPropInt(propertyName, value);
+        }
+
         public static void UpdateComboBox(ComboBox comboBox, List<IINode> nodes, string propertyName)
         {
             foreach (var node in nodes)
@@ -1078,10 +1650,10 @@ namespace Max2Babylon
                 UpdateComboBox(comboBox, node, propertyName);
             }
         }
-        #endregion
+#endregion
 
 
-        #region Windows.Forms Helpers
+#region Windows.Forms Helpers
 
         /// <summary>
         /// Enumerates the whole tree, excluding the given node.
@@ -1096,67 +1668,9 @@ namespace Max2Babylon
             }
         }
 
-        #endregion
+#endregion
 
-        #region File Path
-
-        /// <summary>
-        /// Creates a relative path from one file or folder to another. Input paths that are directories should have a trailing slash.
-        /// </summary>
-        /// <param name="fromPath">Contains the directory that defines the start of the relative path. Directories should have a trailing slash.</param>
-        /// <param name="toPath">Contains the path that defines the endpoint of the relative path. Directories should have a trailing slash.</param>
-        /// <returns>The relative path from the start directory to the end path.</returns>
-        /// <exception cref="ArgumentNullException"><paramref name="toPath"/> is <c>null</c>.</exception>
-        /// <exception cref="UriFormatException"></exception>
-        /// <exception cref="InvalidOperationException"></exception>
-        public static string GetRelativePath(string fromPath, string toPath)
-        {
-            if (string.IsNullOrEmpty(fromPath))
-                return toPath;
-            if (string.IsNullOrEmpty(toPath))
-                throw new ArgumentNullException("toPath");
-
-            Uri fromUri = new Uri(fromPath);
-            Uri toUri = new Uri(toPath);
-
-            if (fromUri.Scheme != toUri.Scheme)
-                return toPath;
-
-            Uri relativeUri = fromUri.MakeRelativeUri(toUri);
-            string relativePath = Uri.UnescapeDataString(relativeUri.ToString());
-
-            if (string.Equals(toUri.Scheme, Uri.UriSchemeFile, StringComparison.OrdinalIgnoreCase))
-                relativePath = relativePath.Replace(Path.AltDirectorySeparatorChar, Path.DirectorySeparatorChar);
-
-            return relativePath;
-        }
-
-
-        public static string UnformatPath(string formattedPath)
-        {
-            string newPath = formattedPath;
-            newPath = Regex.Replace(formattedPath, @"[()]", string.Empty);
-            return newPath;
-        }
-
-        public static string FormatPath(string absolutePath)
-        {
-            if (string.IsNullOrWhiteSpace(Loader.Core.CurFilePath))
-            {
-                return absolutePath;
-            }
-
-            
-            string dirName = Loader.Core.GetDir((int)MaxDirectory.ProjectFolder);
-
-            if (!absolutePath.StartsWith(dirName))
-            {
-                return absolutePath;
-            }
-
-            //wrap the part of path relative to user project folder around ()
-            return string.Format("({0})\\{1}",dirName, absolutePath.TrimStart(dirName.ToCharArray()));
-        }
+#region File Path
 
         public static string RelativePathStore(string path)
         {
@@ -1173,12 +1687,12 @@ namespace Max2Babylon
                 return path;
             }
 
-            return path.TrimStart(dirName.ToCharArray());
+            return path.Remove(0,dirName.Length);
         }
 
         public static string ResolveRelativePath(string path)
         {
-            if (string.IsNullOrWhiteSpace(Loader.Core.CurFilePath))
+            if (string.IsNullOrEmpty(Loader.Core.CurFilePath))
             {
                 return path;
             }
@@ -1186,15 +1700,54 @@ namespace Max2Babylon
 
             string dirName = Loader.Core.GetDir((int)MaxDirectory.ProjectFolder);
 
-            if(Path.IsPathRooted(path))
+            if(!path.StartsWith("\\"))
             {
                 return path;
             }
 
-            return string.Format("({0})\\{1}", dirName, path);
+            return string.Format(@"{0}{1}", dirName, path);
+        }
+
+        public static void MaxPath(this RichTextBox box, string path)
+        {
+            if (!box.IsDisposed)
+            {
+                string dirName = Loader.Core.GetDir((int)MaxDirectory.ProjectFolder);
+                box.ResetText();
+
+                box.Text = path;
+                box.ForeColor = Color.Black;
+
+                if (path.StartsWith(dirName))
+                {
+                    box.SelectionStart = 0;
+                    box.SelectionLength = dirName.Length;
+                    box.SelectionColor = Color.Blue;
+                }
+            }
         }
 
 
-        #endregion
+#endregion
+
+/// <summary>
+/// Converts the ITab to a more convenient IEnumerable.
+/// </summary>
+public static IEnumerable<T> ITabToIEnumerable<T>(ITab<T> tab)
+{
+#if MAX2015
+            for (int i = 0; i < tab.Count; i++)
+            {
+                yield return tab[(IntPtr)i];
+            }
+#else
+    for (int i = 0; i < tab.Count; i++)
+    {
+        yield return tab[i];
+    }
+#endif
+                
+}
+        
     }
 }

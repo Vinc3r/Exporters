@@ -1,9 +1,11 @@
 ﻿using Autodesk.Max;
+using Utilities;
 
 namespace Max2Babylon
 {
     public struct GlobalVertex
     {
+
         public int BaseIndex { get; set; }
         public int CurrentIndex { get; set; }
         public IPoint3 Position { get; set; }
@@ -17,8 +19,39 @@ namespace Max2Babylon
         public IPoint4 WeightsExtra { get; set; }
         public float[] Color { get; set; }
 
+        public GlobalVertex(GlobalVertex other)
+        {
+            this.BaseIndex = other.BaseIndex;
+            this.CurrentIndex = other.CurrentIndex;
+            this.Position = other.Position != null ? other.Position.Clone() : null;
+            this.Normal = other.Normal != null ? other.Normal.Clone() : null;
+            this.Tangent = other.Tangent != null ? other.Tangent.Clone2() : null;
+            this.UV = other.UV != null ? other.UV.Clone() : null;
+            this.UV2 = other.UV2 != null ? other.UV2.Clone() : null;
+            this.BonesIndices = other.BonesIndices;
+            this.Weights = other.Weights != null ? other.Weights.Clone() : null;
+            this.BonesIndicesExtra = other.BonesIndicesExtra;
+            this.WeightsExtra = other.WeightsExtra != null ? other.WeightsExtra.Clone() : null;
+            this.Color = other.Color != null ? other.Color.Clone2() : null;
+        }
+
         public override int GetHashCode()
         {
+            /*
+            return string.Format("{0}-{1}-{2}-{3}-{4}-{5}-{6}-{7}-{8}-{9}",
+                                    BaseIndex,
+                                    CurrentIndex,
+                                    Position != null ? Position.ToArray() : null,
+                                    Normal != null ? Normal.ToArray() : null,
+                                    Tangent,
+                                    UV != null ? UV.ToArray() : null,
+                                    UV2 != null ? UV.ToArray() : null,
+                                    BonesIndices,
+                                    Weights != null ? Weights.ToArray() : null,
+                                    BonesIndicesExtra,
+                                    WeightsExtra != null ? WeightsExtra.ToArray() : null,
+                                    Color).GetHashCode();
+            */
             return base.GetHashCode();
         }
 

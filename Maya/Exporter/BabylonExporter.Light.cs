@@ -125,6 +125,9 @@ namespace Maya2Babylon
             // Hierarchy
             ExportHierarchy(babylonLight, mFnTransform);
 
+            // User custom attributes
+            babylonLight.metadata = ExportCustomAttributeFromTransform(mFnTransform);
+
             // Position
             //RaiseVerbose("BabylonExporter.Light | ExportTransform", 2);
             float[] position = null;
@@ -219,7 +222,7 @@ namespace Maya2Babylon
             babylonLight.includedOnlyMeshesIds = includeMeshesIds.ToArray();
 
             // Animations
-            if (_bakeAnimationFrames)
+            if (exportParameters.bakeAnimationFrames)
             {
                 ExportNodeAnimationFrameByFrame(babylonLight, mFnTransform);
             }

@@ -25,7 +25,7 @@ namespace Maya2Babylon
         private BabylonNode ExportDummy(MDagPath mDagPath, BabylonScene babylonScene)
         {
             RaiseMessage(mDagPath.partialPathName, 1);
-            
+
             MFnTransform mFnTransform = new MFnTransform(mDagPath);
 
             Print(mFnTransform, 2, "Print ExportDummy mFnTransform");
@@ -37,13 +37,16 @@ namespace Maya2Babylon
             ExportNode(babylonMesh, mFnTransform, babylonScene);
 
             // Animations
-            if (_bakeAnimationFrames)
+            if (exportParameters.exportAnimations)
             {
-                ExportNodeAnimationFrameByFrame(babylonMesh, mFnTransform);
-            }
-            else
-            {
-                ExportNodeAnimation(babylonMesh, mFnTransform);
+                if (exportParameters.bakeAnimationFrames)
+                {
+                    ExportNodeAnimationFrameByFrame(babylonMesh, mFnTransform);
+                }
+                else
+                {
+                    ExportNodeAnimation(babylonMesh, mFnTransform);
+                }
             }
 
             babylonScene.MeshesList.Add(babylonMesh);
@@ -264,19 +267,25 @@ namespace Maya2Babylon
                 // Export transform / hierarchy / animations
                 ExportNode(babylonInstanceMesh, mFnTransform, babylonScene);
 
+                // Extra attributes
+                babylonInstanceMesh.metadata = ExportCustomAttributeFromTransform(mFnTransform);
+
                 // Animations
-                ExportNodeAnimation(babylonInstanceMesh, mFnTransform);
+                if (exportParameters.exportAnimations)
+                {
+                    ExportNodeAnimation(babylonInstanceMesh, mFnTransform);
+                }
 
                 return babylonInstanceMesh;
             }
 
+            babylonScene.MeshesList.Add(babylonMesh);
+
             // Position / rotation / scaling / hierarchy
             ExportNode(babylonMesh, mFnTransform, babylonScene);
 
-            // Misc.
-            // TODO - Retreive from Maya
-            //babylonMesh.receiveShadows = meshNode.MaxNode.RcvShadows == 1;
-            //babylonMesh.applyFog = meshNode.MaxNode.ApplyAtmospherics == 1;
+            // Extra attributes
+            babylonMesh.metadata = ExportCustomAttributeFromTransform(mFnTransform);
 
             if (mFnMesh.numPolygons < 1)
             {
@@ -293,19 +302,102 @@ namespace Maya2Babylon
                 RaiseWarning($"Mesh {babylonMesh.name} has more than 65536 vertices which means that it will require specific WebGL extension to be rendered. This may impact portability of your scene on low end devices.", 2);
             }
 
-            // Animations
-            if (_bakeAnimationFrames)
+            // skin
+            if (exportParameters.exportSkins)
             {
-                ExportNodeAnimationFrameByFrame(babylonMesh, mFnTransform);
+                mFnSkinCluster = getMFnSkinCluster(mFnMesh);
             }
-            else
+            int maxNbBones = 0;
+            if (mFnSkinCluster != null)
             {
-                ExportNodeAnimation(babylonMesh, mFnTransform);
+                RaiseMessage($"mFnSkinCluster.name | {mFnSkinCluster.name}", 2);
+                Print(mFnSkinCluster, 3, $"Print {mFnSkinCluster.name}");
+
+                // Get the bones dictionary<name, index> => it represents all the bones in the skeleton
+                indexByNodeName = GetIndexByFullPathNameDictionary(mFnSkinCluster);
+
+                // Get the joint names that influence this mesh
+                allMayaInfluenceNames = GetBoneFullPathName(mFnSkinCluster, mFnTransform);
+
+                // Get the max number of joints acting on a vertex
+                int maxNumInfluences = GetMaxInfluence(mFnSkinCluster, mFnTransform, mFnMesh);
+
+                RaiseMessage($"Max influences : {maxNumInfluences}", 2);
+                if (maxNumInfluences > 8)
+                {
+                    RaiseWarning($"Too many bones influences per vertex: {maxNumInfluences}. Babylon.js only support up to 8 bones influences per vertex.", 2);
+                    RaiseWarning("The result may not be as expected.", 2);
+                }
+                maxNbBones = Math.Min(maxNumInfluences, 8);
+
+                if (indexByNodeName != null && allMayaInfluenceNames != null)
+                {
+                    int skeletonId = babylonMesh.skeletonId = GetSkeletonIndex(mFnSkinCluster);
+
+                    // Bones with zero scale damage the mesh geometry export
+                    // So you need to fid a frame were those bones have a higher scale
+                    if (frameBySkeletonID.ContainsKey(skeletonId))
+                    {
+                        double frame = frameBySkeletonID[skeletonId];
+                        RaiseVerbose($"Export the mesh at the same frame as its skeleton {frame}");
+                    }
+                    else
+                    {
+                        List<MObject> bones = GetRevelantNodes(mFnSkinCluster);
+                        double currentFrame = Loader.GetCurrentTime();
+                        frameBySkeletonID[skeletonId] = currentFrame;
+
+                        if (HasNonZeroScale(bones, currentFrame))
+                        {
+                            RaiseVerbose($"Export the mesh at the current frame {currentFrame}", 2);
+                        }
+                        else
+                        {   // There is at least one bone in the skeleton that has a zero scale
+                            IList<double> validFrames = GetValidFrames(mFnSkinCluster);
+                            if (validFrames.Count > 0)
+                            {
+                                RaiseVerbose($"Export the mesh at the frame {validFrames[0]}", 2);
+                                Loader.SetCurrentTime(validFrames[0]);
+                                frameBySkeletonID[skeletonId] = validFrames[0];
+                            }
+                            else
+                            {
+                                RaiseError($"No valid frame found for the mesh export. The bone scales are too close to zero.", 2);
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    mFnSkinCluster = null;
+                }
+            }
+
+            // Animations
+            if (exportParameters.exportAnimations)
+            {
+                if (exportParameters.bakeAnimationFrames)
+                {
+                    ExportNodeAnimationFrameByFrame(babylonMesh, mFnTransform);
+                }
+                else
+                {
+                    ExportNodeAnimation(babylonMesh, mFnTransform);
+                }
+            }
+            if (exportParameters.exportAnimationsOnly)
+            {
+                // Skip material and geometry export
+                RaiseMessage("BabylonExporter.Mesh | done", 2);
+                return babylonMesh;
             }
 
             // Material
             MObjectArray shaders = new MObjectArray();
             mFnMesh.getConnectedShaders(0, shaders, new MIntArray());
+
+            bool isDoubleSided = false;
+
             if (shaders.Count > 0)
             {
                 List<MFnDependencyNode> materials = new List<MFnDependencyNode>();
@@ -315,12 +407,16 @@ namespace Maya2Babylon
                     MFnDependencyNode shadingEngine = new MFnDependencyNode(shader);
                     MPlug mPlugSurfaceShader = shadingEngine.findPlug("surfaceShader");
                     MObject materialObject = mPlugSurfaceShader.source.node;
+                    if (materialObject.hasFn(MFn.Type.kSurfaceShader))
+                    {
+                        isDoubleSided = true;
+                    }
                     MFnDependencyNode material = new MFnDependencyNode(materialObject);
 
                     materials.Add(material);
                 }
 
-                if (shaders.Count == 1)
+                if (shaders.Count == 1 && !isDoubleSided)
                 {
                     MFnDependencyNode material = materials[0];
 
@@ -331,6 +427,52 @@ namespace Maya2Babylon
                     if (!referencedMaterials.Contains(material, new MFnDependencyNodeEqualityComparer()))
                     {
                         referencedMaterials.Add(material);
+                    }
+                }
+                else if (isDoubleSided)
+                {
+                    // Get the UUID of the SufaceShader node
+                    string uuidMultiMaterial = materials[0].uuid().asString();
+
+                    // DoubleSided material is referenced by id
+                    babylonMesh.materialId = uuidMultiMaterial;
+
+                    // Get the textures from the double sided node
+                    MPlug connectionOutColor = materials[0].getConnection("outColor");
+
+                    MObject destinationObject = connectionOutColor.source.node;
+
+                    MFnDependencyNode babylonAttributesDependencyNode = new MFnDependencyNode(destinationObject);
+
+                    MPlug connectionMat01 = babylonAttributesDependencyNode.getConnection("colorIfTrue");
+                    MPlug connectionMat02 = babylonAttributesDependencyNode.getConnection("colorIfFalse");
+                    MPlug connectionFirstTerm = babylonAttributesDependencyNode.getConnection("firstTerm");
+
+                    MObject babylonFirstMaterialSourceNode = new MObject();
+                    MObject babylonSecondMaterialSourceNode = new MObject();
+
+                    if (connectionMat01 != null && connectionMat02 != null && connectionFirstTerm.name.Contains("firstTerm"))
+                    {
+                        babylonFirstMaterialSourceNode = connectionMat01.source.node;
+                        babylonSecondMaterialSourceNode = connectionMat02.source.node;
+
+                        MFnDependencyNode babylonFirstMaterial = new MFnDependencyNode(babylonFirstMaterialSourceNode);
+                        MFnDependencyNode babylonSecondMaterial = new MFnDependencyNode(babylonSecondMaterialSourceNode);
+
+                        List<MFnDependencyNode> materialsFromDoubleSided = new List<MFnDependencyNode>();
+                        materialsFromDoubleSided.Add(babylonFirstMaterial);
+                        materialsFromDoubleSided.Add(babylonSecondMaterial);
+
+                        // Register double sided as multi material for export if not already done
+                        if (!multiMaterials.ContainsKey(uuidMultiMaterial))
+                        {
+                            multiMaterials.Add(uuidMultiMaterial, materialsFromDoubleSided);
+                        }
+                    }
+                    else
+                    {
+                        isDoubleSided = false;
+                        RaiseWarning("This material is not supported it will not be exported:'" + materials[0].name + "'", 2);
                     }
                 }
                 else
@@ -360,86 +502,16 @@ namespace Maya2Babylon
                 isUVExportSuccess[indexUVSet] = true;
             }
 
-            // skin
-            if(_exportSkin)
-            {
-                mFnSkinCluster = getMFnSkinCluster(mFnMesh);
-            }
-            int maxNbBones = 0;
-            if (mFnSkinCluster != null)
-            {
-                RaiseMessage($"mFnSkinCluster.name | {mFnSkinCluster.name}", 2);
-                Print(mFnSkinCluster, 3, $"Print {mFnSkinCluster.name}");
-
-                // Get the bones dictionary<name, index> => it represents all the bones in the skeleton
-                indexByNodeName = GetIndexByFullPathNameDictionary(mFnSkinCluster);
-
-                // Get the joint names that influence this mesh
-                allMayaInfluenceNames = GetBoneFullPathName(mFnSkinCluster, mFnTransform);
-
-                // Get the max number of joints acting on a vertex
-                int maxNumInfluences = GetMaxInfluence(mFnSkinCluster, mFnTransform, mFnMesh);
-
-                RaiseMessage($"Max influences : {maxNumInfluences}",2);
-                if (maxNumInfluences > 8)
-                {
-                    RaiseWarning($"Too many bones influences per vertex: {maxNumInfluences}. Babylon.js only support up to 8 bones influences per vertex.", 2);
-                    RaiseWarning("The result may not be as expected.",2);
-                }
-                maxNbBones = Math.Min(maxNumInfluences, 8);
-
-                if (indexByNodeName != null && allMayaInfluenceNames != null)
-                {
-                    int skeletonId = babylonMesh.skeletonId = GetSkeletonIndex(mFnSkinCluster);
-
-                    // Bones with zero scale damage the mesh geometry export
-                    // So you need to fid a frame were those bones have a higher scale
-                    if (frameBySkeletonID.ContainsKey(skeletonId))
-                    {
-                        double frame = frameBySkeletonID[skeletonId];
-                        RaiseVerbose($"Export the mesh at the same frame as its skeleton {frame}");
-                    }
-                    else
-                    {
-                        List<MObject> bones = GetRevelantNodes(mFnSkinCluster);
-                        double currentFrame = Loader.GetCurrentTime();
-                        frameBySkeletonID[skeletonId] = currentFrame;
-
-                        if (HasNonZeroScale(bones, currentFrame))
-                        {
-                            RaiseVerbose($"Export the mesh at the current frame {currentFrame}", 2);
-                        }
-                        else
-                        {   // There is at least one bone in the skeleton that has a zero scale
-                            IList<double> validFrames = GetValidFrames(mFnSkinCluster);
-                            if(validFrames.Count > 0)
-                            {
-                                RaiseVerbose($"Export the mesh at the frame {validFrames[0]}", 2);
-                                Loader.SetCurrentTime(validFrames[0]);
-                                frameBySkeletonID[skeletonId] = validFrames[0];
-                            }
-                            else
-                            {
-                                RaiseError($"No valid frame found for the mesh export. The bone scales are too close to zero.", 2);
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    mFnSkinCluster = null;
-                }
-            }
             // Export tangents if option is checked and mesh have tangents
-            bool isTangentExportSuccess = _exportTangents;
+            bool isTangentExportSuccess = exportParameters.exportTangents;
 
             // TODO - color, alpha
             //var hasColor = unskinnedMesh.NumberOfColorVerts > 0;
             //var hasAlpha = unskinnedMesh.GetNumberOfMapVerts(-2) > 0;
 
             // TODO - Add custom properties
-            //var optimizeVertices = false; // meshNode.MaxNode.GetBoolProperty("babylonjs_optimizevertices");
-            var optimizeVertices = _optimizeVertices; // global option
+            //var optimizeVertices = false; // meshNode.MaxNode.GetBoolProperty("babylonjsexportParameters.optimizeVertices");
+            var optimizeVertices = exportParameters.optimizeVertices; // global option
 
             // Compute normals
             var subMeshes = new List<BabylonSubMesh>();
@@ -449,7 +521,7 @@ namespace Maya2Babylon
                 setEnvelopesToZeros(mFnMesh.objectProperty);
             }
 
-            ExtractGeometry(babylonMesh, mFnMesh, vertices, indices, subMeshes, uvSetNames, ref isUVExportSuccess, ref isTangentExportSuccess, optimizeVertices);
+            ExtractGeometry(babylonMesh, mFnMesh, vertices, indices, subMeshes, uvSetNames, ref isUVExportSuccess, ref isTangentExportSuccess, optimizeVertices, isDoubleSided);
 
             if (vertices.Count >= 65536)
             {
@@ -538,9 +610,9 @@ namespace Maya2Babylon
                 RaiseMessage("Morph target", 2);
                 IList<MFnBlendShapeDeformer> blendShapeDeformers = GetBlendShape(mFnMesh.objectProperty);
 
-                if (_exportSkin && mFnSkinCluster != null)
+                if (exportParameters.exportSkins && mFnSkinCluster != null)
                 {
-                    RaiseWarning("A mesh with both skin and morph target is not fully supported.", 3);
+                    RaiseWarning("A mesh with both skinning and morph target is not fully supported. Please set the playhead at the frame you want to choose as the bind pose before exporting.", 3);
                 }
 
                 if(blendShapeDeformers.Count > 1)
@@ -549,7 +621,7 @@ namespace Maya2Babylon
                 }
 
                 // Morph Target Manager
-                BabylonMorphTargetManager babylonMorphTargetManager = new BabylonMorphTargetManager();
+                BabylonMorphTargetManager babylonMorphTargetManager = new BabylonMorphTargetManager(babylonMesh);
                 babylonScene.MorphTargetManagersList.Add(babylonMorphTargetManager);
                 babylonMesh.morphTargetManagerId = babylonMorphTargetManager.id;
 
@@ -565,7 +637,6 @@ namespace Maya2Babylon
 
 
 
-            babylonScene.MeshesList.Add(babylonMesh);
             RaiseMessage("BabylonExporter.Mesh | done", 2);
 
             return babylonMesh;
@@ -582,13 +653,13 @@ namespace Maya2Babylon
         /// <param name="uvSetNames"></param>
         /// <param name="isUVExportSuccess"></param>
         /// <param name="optimizeVertices"></param>
-        private void ExtractGeometry(BabylonMesh babylonMesh, MFnMesh mFnMesh, List<GlobalVertex> vertices, List<int> indices, List<BabylonSubMesh> subMeshes, MStringArray uvSetNames, ref bool[] isUVExportSuccess, ref bool isTangentExportSuccess, bool optimizeVertices)
+        private void ExtractGeometry(BabylonMesh babylonMesh, MFnMesh mFnMesh, List<GlobalVertex> vertices, List<int> indices, List<BabylonSubMesh> subMeshes, MStringArray uvSetNames, ref bool[] isUVExportSuccess, ref bool isTangentExportSuccess, bool optimizeVertices, bool isDoubleSided)
         {
-            List<GlobalVertex>[] verticesAlreadyExported = null;
+            Dictionary<GlobalVertex, List<GlobalVertex>> verticesAlreadyExported = null;
 
             if (optimizeVertices)
             {
-                verticesAlreadyExported = new List<GlobalVertex>[mFnMesh.numVertices];
+                verticesAlreadyExported = new Dictionary<GlobalVertex, List<GlobalVertex>>();
             }
 
             MIntArray triangleCounts = new MIntArray();
@@ -659,37 +730,25 @@ namespace Maya2Babylon
                             // Optimize vertices
                             if (verticesAlreadyExported != null)
                             {
-                                if (verticesAlreadyExported[vertexIndexGlobal] != null)
+                                // If a stored vertex is similar to current vertex
+                                if (verticesAlreadyExported.ContainsKey(vertex))
                                 {
-                                    var index = verticesAlreadyExported[vertexIndexGlobal].IndexOf(vertex);
-
-                                    // If a stored vertex is similar to current vertex
-                                    if (index > -1)
-                                    {
-                                        // Use stored vertex instead of current one
-                                        vertex = verticesAlreadyExported[vertexIndexGlobal][index];
-                                    }
-                                    else
-                                    {
-                                        vertex.CurrentIndex = vertices.Count;
-                                        verticesAlreadyExported[vertexIndexGlobal].Add(vertex);
-                                        vertices.Add(vertex);
-
-                                        // Store vertex data
-                                        babylonMesh.VertexDatas.Add(new VertexData(polygonId, vertexIndexGlobal, vertexIndexLocal));
-                                    }
+                                    // Use stored vertex instead of current one
+                                    verticesAlreadyExported[vertex].Add(vertex);
+                                    vertex = verticesAlreadyExported[vertex].ElementAt(0);
                                 }
                                 else
                                 {
-                                    verticesAlreadyExported[vertexIndexGlobal] = new List<GlobalVertex>();
-
-                                    vertex.CurrentIndex = vertices.Count;
-                                    verticesAlreadyExported[vertexIndexGlobal].Add(vertex);
+                                    // add the stored vertex
+                                    verticesAlreadyExported[vertex] = new List<GlobalVertex>();
+                                    var modifiedVertex = new GlobalVertex(vertex);
+                                    modifiedVertex.CurrentIndex = vertices.Count;
+                                    verticesAlreadyExported[vertex].Add(modifiedVertex);
+                                    vertex = modifiedVertex;
                                     vertices.Add(vertex);
-
+                                    
                                     // Store vertex data
                                     babylonMesh.VertexDatas.Add(new VertexData(polygonId, vertexIndexGlobal, vertexIndexLocal));
-
                                 }
                             }
                             else
@@ -719,19 +778,66 @@ namespace Maya2Babylon
                     subMeshes.Add(subMesh);
                 }
             }
+
+            if (isDoubleSided)
+            {
+                List<GlobalVertex> tempVertices = new List<GlobalVertex>();
+
+                int positionsCount = 0;
+
+                for (var i = 0; i < vertices.Count; i++)
+                {
+                    GlobalVertex newVertex = vertices[i];
+                    newVertex.Normal = new float[vertices[i].Normal.Length];
+                    newVertex.Position = new float[vertices[i].Position.Length];
+                    for (var j = 0; j < vertices[i].Normal.Length; j++)
+                    {
+                        newVertex.Normal[j] = -vertices[i].Normal[j];
+                    }
+
+                    for (var j = 0; j < vertices[i].Position.Length; j++)
+                    {
+                        newVertex.Position[j] = vertices[i].Position[j];
+                    }
+
+                    positionsCount++;
+
+                    tempVertices.Add(newVertex);
+                }
+                vertices.AddRange(tempVertices);
+
+                int indicesCount = indices.Count;
+                indices.AddRange(indices);
+
+                for (var i = 0; i < indicesCount; i += 3)
+                {
+                    indices[i + indicesCount] = indices[i + 2] + positionsCount;
+                    indices[i + 1 + indicesCount] = indices[i + 1] + positionsCount;
+                    indices[i + 2 + indicesCount] = indices[i] + positionsCount;
+                }
+
+                var subMesh = new BabylonSubMesh { indexStart = indices.Count/2, materialIndex = 1};
+
+                subMesh.indexCount = indicesCount;
+                subMesh.verticesStart = vertices.Count/2;
+                subMesh.verticesCount = vertices.Count/2;
+
+                subMeshes.Add(subMesh);
+            }
+
         }
 
-        /// <summary>
-        /// Extract geometry (position, normal, UVs...) for a specific vertex
-        /// </summary>
-        /// <param name="mFnMesh"></param>
-        /// <param name="polygonId">The polygon (face) to examine</param>
-        /// <param name="vertexIndexGlobal">The object-relative (mesh-relative/global) vertex index</param>
-        /// <param name="vertexIndexLocal">The face-relative (local) vertex id to examine</param>
-        /// <param name="uvSetNames"></param>
-        /// <param name="isUVExportSuccess"></param>
-        /// <returns></returns>
-        private GlobalVertex ExtractVertex(MFnMesh mFnMesh, int polygonId, int vertexIndexGlobal, int vertexIndexLocal, MStringArray uvSetNames, ref bool[] isUVExportSuccess, ref bool isTangentExportSuccess)
+            /// <summary>
+            /// Extract geometry (position, normal, UVs...) for a specific vertex
+            /// </summary>
+            /// <param name="mFnMesh"></param>
+            /// <param name="polygonId">The polygon (face) to examine</param>
+            /// <param name="vertexIndexGlobal">The object-relative (mesh-relative/global) vertex index</param>
+            /// <param name="vertexIndexLocal">The face-relative (local) vertex id to examine</param>
+            /// <param name="uvSetNames"></param>
+            /// <param name="isUVExportSuccess"></param>
+            /// <returns></returns>
+            private GlobalVertex ExtractVertex(MFnMesh mFnMesh, int polygonId, int vertexIndexGlobal, int vertexIndexLocal, MStringArray uvSetNames, ref bool[] isUVExportSuccess, ref bool isTangentExportSuccess)
         {
             MPoint point = new MPoint();
             mFnMesh.getPoint(vertexIndexGlobal, point);
@@ -967,7 +1073,8 @@ namespace Maya2Babylon
             float[] rotationQuaternion = null;
             float[] rotation = null;
             float[] scaling = null;
-            GetTransform(mFnTransform, ref position, ref rotationQuaternion, ref rotation, ref scaling);
+            BabylonVector3.EulerRotationOrder rotationOrder = BabylonVector3.EulerRotationOrder.XYZ;
+            GetTransform(mFnTransform, ref position, ref rotationQuaternion, ref rotation, ref rotationOrder, ref scaling);
 
             babylonAbstractMesh.position = position;
             if (_exportQuaternionsInsteadOfEulers)
@@ -1187,8 +1294,8 @@ namespace Maya2Babylon
                         var targetVertices = new List<GlobalVertex>();
                         var uvSetNames = new MStringArray();
                         bool[] isUVExportSuccess = { false, false };
-                        bool isTangentExportSuccess = _exportTangents;
-                        bool optimizeVertices = _optimizeVertices;
+                        bool isTangentExportSuccess = exportParameters.exportTangents;
+                        bool optimizeVertices = exportParameters.optimizeVertices;
 
                         List<VertexData> vertexDatas = babylonMesh.VertexDatas;
                         for(int vertexIndex = 0; vertexIndex < vertexDatas.Count; vertexIndex++)
@@ -1239,13 +1346,13 @@ namespace Maya2Babylon
 
                         babylonMorphTarget.positions = targetVertices.SelectMany(v => v.Position).ToArray();
 
-                        if (_exportMorphNormal)
+                        if (exportParameters.exportMorphNormals)
                         {
                             babylonMorphTarget.normals = targetVertices.SelectMany(v => v.Normal).ToArray();
                         }
 
                         // Tangent
-                        if (!isBabylonExported && isTangentExportSuccess && _exportMorphTangent)
+                        if (isTangentExportSuccess && exportParameters.exportMorphTangents)
                         {
                             babylonMorphTarget.tangents = targetVertices.SelectMany(v => v.Tangent).ToArray();
                         }

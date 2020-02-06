@@ -13,7 +13,7 @@ namespace Max2Babylon
             IList<BabylonAnimationGroup> animationGroups = new List<BabylonAnimationGroup>();
 
             // Retrieve and parse animation group data
-            AnimationGroupList animationList = InitAnimationGroups();
+            AnimationGroupList animationList = AnimationGroupList.InitAnimationGroups(this);
 
             foreach (AnimationGroup animGroup in animationList)
             {
@@ -28,9 +28,9 @@ namespace Max2Babylon
                 };
 
                 // add animations of each nodes contained in the animGroup
-                foreach(uint nodeHandle in animGroup.NodeHandles)
+                foreach (Guid guid in animGroup.NodeGuids)
                 {
-                    IINode maxNode = Loader.Core.RootNode.FindChildNode(nodeHandle);
+                    IINode maxNode = Tools.GetINodeByGuid(guid);
 
                     // node could have been deleted, silently ignore it
                     if (maxNode == null)
@@ -39,17 +39,13 @@ namespace Max2Babylon
 
                     // Helpers can be exported as dummies and as bones
                     string nodeId = maxNode.GetGuid().ToString();
-                    string boneId = maxNode.GetGuid().ToString()+"-bone";   // the suffix "-bone" is added in babylon export format to assure the uniqueness of IDs
+                    string boneId = isGltfExported?maxNode.GetGuid().ToString(): maxNode.GetGuid().ToString()+"-bone";   // the suffix "-bone" is added in babylon export format to assure the uniqueness of IDs
 
 
                     // Node
-                    BabylonNode node = babylonScene.MeshesList.FirstOrDefault(m => m.id == nodeId);
-                    if (node == null)
-                        node = babylonScene.CamerasList.FirstOrDefault(c => c.id == nodeId);
-                    if (node == null)
-                        node = babylonScene.LightsList.FirstOrDefault(l => l.id == nodeId);
-
-                    if(node != null)
+                    BabylonNode node = null;
+                    babylonScene.NodeMap.TryGetValue(nodeId, out node);
+                    if (node != null)
                     {
                         if (node.animations != null && node.animations.Length != 0)
                         {
@@ -80,14 +76,14 @@ namespace Max2Babylon
                     // bone
                     BabylonBone bone = null;
                     int index = 0;
-                    while(index < babylonScene.SkeletonsList.Count && bone == null)
+                    while (index < babylonScene.SkeletonsList.Count && bone == null)
                     {
                         BabylonSkeleton skel = babylonScene.SkeletonsList[index];
                         bone = skel.bones.FirstOrDefault(b => b.id == boneId);
                         index++;
                     }
 
-                    if(bone != null)
+                    if (bone != null)
                     {
                         if (bone.animation != null)
                         {
@@ -302,7 +298,7 @@ namespace Max2Babylon
             var keys = new List<BabylonAnimationKey>();
             for (int indexKey = 0; indexKey < gameKeyTab.Count; indexKey++)
             {
-#if MAX2017 || MAX2018 || MAX2019
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020
                 var gameKey = gameKeyTab[indexKey];
 #else
                 var gameKey = gameKeyTab[new IntPtr(indexKey)];
@@ -571,6 +567,7 @@ namespace Max2Babylon
             }
             var keysFull = new List<BabylonAnimationKey>(keys);
 
+            // Optimization process always keeps first and last frames
             if (optimizeAnimations)
             {
                 OptimizeAnimations(keys, removeLinearAnimationKeys);
@@ -620,16 +617,48 @@ namespace Max2Babylon
             return false;
         }
 
-        public void GeneratePositionAnimation(IIGameNode gameNode, List<BabylonAnimation> animations)
+        public bool isPositionAnimated(IIGameNode gameNode)
         {
-            if (gameNode.IGameControl.IsAnimated(IGameControlType.Pos) ||
+            return gameNode.IGameControl != null && (gameNode.IGameControl.IsAnimated(IGameControlType.Pos) ||
                 gameNode.IGameControl.IsAnimated(IGameControlType.PosX) ||
                 gameNode.IGameControl.IsAnimated(IGameControlType.PosY) ||
-                gameNode.IGameControl.IsAnimated(IGameControlType.PosZ))
+                gameNode.IGameControl.IsAnimated(IGameControlType.PosZ));
+        }
+
+        public bool isRotationAnimated(IIGameNode gameNode)
+        {
+            return gameNode.IGameControl != null && (gameNode.IGameControl.IsAnimated(IGameControlType.Rot) ||
+                gameNode.IGameControl.IsAnimated(IGameControlType.EulerX) ||
+                gameNode.IGameControl.IsAnimated(IGameControlType.EulerY) ||
+                gameNode.IGameControl.IsAnimated(IGameControlType.EulerZ) ||
+                (gameNode.IGameObject.IGameType == Autodesk.Max.IGameObject.ObjectTypes.Light && gameNode.IGameObject.AsGameLight().LightTarget != null)); // Light with target are indirectly animated by their target
+        }
+
+        public bool isScaleAnimated(IIGameNode gameNode)
+        {
+            return gameNode.IGameControl != null && gameNode.IGameControl.IsAnimated(IGameControlType.Scale);
+        }
+
+        public bool isAnimated(IIGameNode gameNode)
+        {
+            return isPositionAnimated(gameNode) ||
+                isRotationAnimated(gameNode) ||
+                isScaleAnimated(gameNode);
+        }
+
+        public void GeneratePositionAnimation(IIGameNode gameNode, List<BabylonAnimation> animations)
+        {
+            if (isPositionAnimated(gameNode))
             {
                 ExportVector3Animation("position", animations, key =>
                 {
                     var localMatrix = gameNode.GetLocalTM(key);
+
+                    if (float.IsNaN(localMatrix.Determinant))
+                    {
+                        RaiseError($"Determinant of {gameNode.Name} of position animation at {key} localMatrix is NaN ");
+                    }
+
                     var tm_babylon = new BabylonMatrix();
                     tm_babylon.m = localMatrix.ToArray();
 
@@ -646,16 +675,17 @@ namespace Max2Babylon
 
         public void GenerateRotationAnimation(IIGameNode gameNode, List<BabylonAnimation> animations, bool force = false)
         {
-            if (gameNode.IGameControl.IsAnimated(IGameControlType.Rot) ||
-                gameNode.IGameControl.IsAnimated(IGameControlType.EulerX) ||
-                gameNode.IGameControl.IsAnimated(IGameControlType.EulerY) ||
-                gameNode.IGameControl.IsAnimated(IGameControlType.EulerZ) ||
-                (gameNode.IGameObject.IGameType == Autodesk.Max.IGameObject.ObjectTypes.Light && gameNode.IGameObject.AsGameLight().LightTarget != null) || // Light with target are indirectly animated by their target
-                force)
+            if (isRotationAnimated(gameNode) || force)
             {
                 ExportQuaternionAnimation("rotationQuaternion", animations, key =>
                 {
                     var localMatrix = gameNode.GetLocalTM(key);
+
+                    if (float.IsNaN(localMatrix.Determinant))
+                    {
+                        RaiseError($"Determinant of {gameNode.Name} of rotation animation at {key} localMatrix is NaN ");
+                    }
+
                     var tm_babylon = new BabylonMatrix();
                     tm_babylon.m = localMatrix.ToArray();
 
@@ -676,11 +706,17 @@ namespace Max2Babylon
 
         public void GenerateScalingAnimation(IIGameNode gameNode, List<BabylonAnimation> animations)
         {
-            if (gameNode.IGameControl.IsAnimated(IGameControlType.Scale))
+            if (isScaleAnimated(gameNode))
             {
                 ExportVector3Animation("scaling", animations, key =>
                 {
                     var localMatrix = gameNode.GetLocalTM(key);
+
+                    if (float.IsNaN(localMatrix.Determinant))
+                    {
+                        RaiseError($"Determinant of {gameNode.Name} of scale animation at {key} localMatrix is NaN ");
+                    }
+
                     var tm_babylon = new BabylonMatrix();
                     tm_babylon.m = localMatrix.ToArray();
 

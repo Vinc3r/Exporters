@@ -64,17 +64,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BabylonExportActionItem.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Light.cs" />
+    <Compile Include="Exporter\BabylonExporter.CustomAttributes.cs" />
     <Compile Include="Exporter\BabylonExporter.Material.Optimiser.cs" />
     <Compile Include="Exporter\BabylonExporter.Camera.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Animation.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.AbstractMesh.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Camera.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Material.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Mesh.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Skin.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Texture.cs" />
     <Compile Include="Exporter\BabylonExporter.Light.cs" />
     <Compile Include="Exporter\BabylonExporter.Material.cs" />
     <Compile Include="Exporter\BabylonExporter.Animation.cs" />
@@ -90,10 +82,14 @@
     <Compile Include="Exporter\GLTFGlobalVertex.cs" />
     <Compile Include="Exporter\BabylonExporter.Material.Duplication.cs" />
     <Compile Include="Exporter\MaterialDuplicationData.cs" />
+    <Compile Include="Exporter\PluginNodes\babylonAiStandardSurfaceMaterialNode.cs" />
+    <Compile Include="Exporter\PluginNodes\babylonStandardMaterialNode.cs" />
+    <Compile Include="Exporter\PluginNodes\babylonStingrayPBSMaterialNode.cs" />
     <Compile Include="Extensions\ColorExtension.cs" />
     <Compile Include="Extensions\MColorExtension.cs" />
     <Compile Include="Extensions\MFloatVectorExtension.cs" />
     <Compile Include="Extensions\MFloatPointExtension.cs" />
+    <Compile Include="Extensions\MFnDependencyNodeExtension.cs" />
     <Compile Include="Extensions\MMatrixExtension.cs" />
     <Compile Include="Extensions\MPlugExtension.cs" />
     <Compile Include="Extensions\MPointExtension.cs" />
@@ -159,6 +155,8 @@
   <Import Project="..\SharedProjects\BabylonExport.Entities\BabylonExport.Entities.projitems" Label="Shared" />
   <Import Project="..\SharedProjects\BabylonFileConverter\BabylonFileConverter.projitems" Label="Shared" />
   <Import Project="..\SharedProjects\GltfExport.Entities\GltfExport.Entities.projitems" Label="Shared" />
+  <Import Project="..\SharedProjects\Utilities\Extensions.projitems" Label="Shared" />
+  <Import Project="..\SharedProjects\Babylon2GLTF\Babylon2GLTF.projitems" Label="Shared" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>if not exist "$(SolutionDir)assemblies" mkdir "$(SolutionDir)assemblies"

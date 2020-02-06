@@ -3,14 +3,20 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Windows.Forms;
+using ExplorerFramework;
+using Max2Babylon.Forms;
+using MaxCustomControls.SceneExplorerControls;
+using Microsoft.WindowsAPICodePack.Dialogs;
+using SceneExplorer;
+using Utilities;
 
 namespace Max2Babylon
 {
     public partial class MultiExportForm : Form
     {
         const bool Default_ExportItemSelected = true;
-
-        ExportItemList exportItemList;
+        private CommonOpenFileDialog setTexturesFolderDialog;
+        private ExportItemList exportItemList;
 
         public MultiExportForm(ExportItemList exportItemList)
         {
@@ -29,17 +35,25 @@ namespace Max2Babylon
                 row.Cells.Add(new DataGridViewCheckBoxCell());
                 row.Cells.Add(new DataGridViewTextBoxCell());
                 row.Cells.Add(new DataGridViewTextBoxCell());
+                row.Cells.Add(new DataGridViewTextBoxCell());
+                row.Cells.Add(new DataGridViewTextBoxCell());
                 SetRowData(row, item);
                 ExportItemGridView.Rows.Add(row);
             }
+            ExportItemGridView.AutoResizeColumns();
+            ExportItemGridView.AllowUserToOrderColumns = true;
+            ExportItemGridView.AllowUserToResizeColumns = true;
         }
 
         private void SetRowData(DataGridViewRow row, ExportItem item)
         {
             row.Tag = item;
             row.Cells[0].Value = item.Selected;
-            row.Cells[1].Value = item.NodeName;
-            row.Cells[2].Value = item.ExportFilePathAbsolute;
+            row.Cells[1].Value = item.LayersToString(item.Layers);
+            row.Cells[2].Value = item.NodeName;
+            row.Cells[3].Value = item.ExportFilePathAbsolute;
+            row.Cells[4].Value = item.ExportTexturesesFolderAbsolute;
+            Refresh();
         }
 
         private string GetUniqueExportPath(string initialPath)
@@ -53,7 +67,6 @@ namespace Max2Babylon
             int fileCounter = 0;
             while (exportItemList.Find(exportItem => exportItem.ExportFilePathRelative == path) != null)
             {
-                path = Path.ChangeExtension(path, null);
                 path = Path.Combine(filepathNoExt + fileCounter.ToString());
                 path = Path.ChangeExtension(path, ext);
                 ++fileCounter;
@@ -66,6 +79,7 @@ namespace Max2Babylon
         {
             ExportItem item = new ExportItem(exportItemList.OutputFileExtension);
             item.SetExportFilePath(GetUniqueExportPath(exportPath));
+            item.SetExportTexturesFolderPath(item.ExportTexturesesFolderAbsolute);
             item.Selected = row.Cells[0].Value == null ? Default_ExportItemSelected : (bool)row.Cells[0].Value;
             exportItemList.Add(item);
             return item;
@@ -82,6 +96,22 @@ namespace Max2Babylon
 
             ExportItem item = new ExportItem(exportItemList.OutputFileExtension, nodeHandle);
             item.SetExportFilePath(GetUniqueExportPath(exportPath != null ? exportPath : item.ExportFilePathRelative));
+            item.SetExportTexturesFolderPath(item.ExportTexturesesFolderAbsolute);
+            item.Selected = row.Cells[0].Value == null ? Default_ExportItemSelected : (bool)row.Cells[0].Value;
+            exportItemList.Add(item);
+            return item;
+        }
+
+        private ExportItem TryAddExportItem(DataGridViewRow row,List<IILayer> iLayers)
+        {
+            foreach(ExportItem existingItem in exportItemList)
+            {
+                if (existingItem.Layers == iLayers)
+                    return null;
+            }
+
+            ExportItem item = new ExportItem(iLayers);
+            item.NodeHandle = Loader.Core.RootNode.Handle;
             item.Selected = row.Cells[0].Value == null ? Default_ExportItemSelected : (bool)row.Cells[0].Value;
             exportItemList.Add(item);
             return item;
@@ -145,11 +175,32 @@ namespace Max2Babylon
                 string str = row.Cells[e.ColumnIndex].Value as string;
 
                 if (item == null) item = AddExportItem(row, str);
-                else item.SetExportFilePath(str);
+                else
+                {
+                    item.SetExportFilePath(str);
+                }
+
+                SetRowData(row, item);
+            }
+
+            if (e.ColumnIndex == ColumnTexturesFolder.Index)
+            {
+                string str = row.Cells[e.ColumnIndex].Value as string;
+
+                if (item == null) item = AddExportItem(row, str);
+                else
+                {
+                    item.SetExportTexturesFolderPath(str);
+                }
 
                 SetRowData(row, item);
             }
         }
+
+        
+        private LayerSelector layerSelector;
+        private int layersRowIndex;
+        private int layersColumnIndex;
 
         private void ExportItemGridView_CellDoubleClick(object sender, DataGridViewCellEventArgs e)
         {
@@ -164,8 +215,18 @@ namespace Max2Babylon
                     IINode node = Loader.Core.GetSelNode(0);
 
                     if (existingItem == null)
+                    {
                         existingItem = TryAddExportItem(selectedRow, node.Handle);
-                    else existingItem.NodeHandle = node.Handle;
+                    }
+                    else
+                    {
+                        if (existingItem.Layers!= null && existingItem.Layers.Count > 0)
+                        {
+                            MessageBox.Show("You can't specify a Node when export is layer based");
+                            return;
+                        }
+                        existingItem.NodeHandle = node.Handle;
+                    }
                     
                     // may be null after trying to add a node that already exists in another row
                     if(existingItem != null) SetRowData(selectedRow, existingItem);
@@ -195,6 +256,63 @@ namespace Max2Babylon
                     ExportItemGridView.EndEdit();
                 }
             }
+
+
+            // double-clicked layers column cell, select some layers!
+            if(e.ColumnIndex == ColumnLayers.Index)
+            {
+                layersRowIndex = e.RowIndex;
+                layersColumnIndex = e.ColumnIndex;
+                ExportItem existingItem = ExportItemGridView.Rows[layersRowIndex].Tag as ExportItem;
+                if (layerSelector == null || layerSelector.IsDisposed)
+                {
+                    layerSelector = new LayerSelector();
+                    layerSelector.Show();
+                    layerSelector.FillLayerSelector(existingItem?.Layers);
+
+                    layerSelector.OnConfirmButtonClicked += LayerExplorerClosed;
+                }
+                else
+                {
+                    layerSelector.Focus();
+                }
+                
+
+            }
+        }
+
+        private void LayerExplorerClosed(object sender, EventArgs e)
+        {
+            List<IILayer> selectedLayers = layerSelector.SelectedLayers;
+
+            if (selectedLayers.Count>0)
+            {
+                int highestRowIndexEdited = layersRowIndex;
+                var selectedRow = ExportItemGridView.Rows[layersRowIndex];
+
+
+                ExportItem existingItem = selectedRow.Tag as ExportItem;
+
+                if (existingItem == null)
+                {
+                    existingItem = TryAddExportItem(selectedRow, selectedLayers);
+                }
+                else
+                {
+                    existingItem.SetExportLayers(selectedLayers);
+                }
+
+                // may be null after trying to add a node that already exists in another row
+                if (existingItem != null) SetRowData(selectedRow, existingItem);
+
+                // have to explicitly set it dirty for an edge case:
+                // when a new row is added "automatically-programmatically", through notify cell dirty and endedit(),
+                //   if the user then clicks on the checkbox of the newly added row,
+                //     it doesn't add a new row "automatically", whereas otherwise it will.
+                ExportItemGridView.CurrentCell = ExportItemGridView[layersColumnIndex, highestRowIndexEdited];
+                ExportItemGridView.NotifyCurrentCellDirty(true);
+                ExportItemGridView.EndEdit();
+            }
         }
 
         private void ExportItemGridView_CellContentClick(object sender, DataGridViewCellEventArgs e)
@@ -215,46 +333,62 @@ namespace Max2Babylon
             if (ExportItemGridView.SelectedCells.Count <= 0) return;
             
             List<DataGridViewCell> pathCells = new List<DataGridViewCell>(ExportItemGridView.SelectedCells.Count);
-            
+
+            bool chnageTextureFolderPath = false;
             foreach (DataGridViewCell selectedCell in ExportItemGridView.SelectedCells)
             {
-                DataGridViewCell matchingPathCell = selectedCell.OwningRow.Cells[ColumnFilePath.Index];
+                int cellIndex = 3;
+                if (selectedCell.OwningRow.Cells[4].Selected)
+                {
+                    cellIndex = 4;
+                    chnageTextureFolderPath = true;
+                }
+                DataGridViewCell matchingPathCell = selectedCell.OwningRow.Cells[cellIndex];
                 if(pathCells.Contains(matchingPathCell)) continue;
                 pathCells.Add(matchingPathCell);
             }
 
             if (pathCells.Count == 0) return;
 
-            string firstSelectedCellPath = pathCells[0].Value as string;
-            
-            if (string.IsNullOrWhiteSpace(firstSelectedCellPath))
+            if (chnageTextureFolderPath)
+            {
+                ShowTexturesFolderDialog(pathCells);
+            }
+            else
+            {
+                ShowFileDialog(pathCells);
+            }
+        }
+
+        private void ShowFileDialog(List<DataGridViewCell> pathCells)
+        {
+            string filePath = pathCells[0].Value as string;
+            if (string.IsNullOrWhiteSpace(filePath))
             {
                 SetPathFileDialog.InitialDirectory = null;
                 SetPathFileDialog.FileName = "FileName";
             }
             else
             {
-                SetPathFileDialog.InitialDirectory = Path.GetDirectoryName(firstSelectedCellPath);
-                SetPathFileDialog.FileName = Path.GetFileName(firstSelectedCellPath);
+                SetPathFileDialog.InitialDirectory = Path.GetDirectoryName(filePath);
+                SetPathFileDialog.FileName = Path.GetFileName(filePath);
             }
 
             SetPathFileDialog.FileName = pathCells.Count <= 1 ? SetPathFileDialog.FileName : "FileName not used for multiple file path changes";
-
+            
             if (SetPathFileDialog.ShowDialog(this) == DialogResult.OK)
             {
                 string dir = Path.GetDirectoryName(SetPathFileDialog.FileName);
-                string filename = Path.GetFileNameWithoutExtension(SetPathFileDialog.FileName);
 
                 Action<DataGridViewCell, string> funcUpdatePath = (DataGridViewCell selectedCell, string forcedFileName) => 
                 {
                     string oldFileName = Path.GetFileNameWithoutExtension(selectedCell.Value as string);
-                    string oldExtension = Path.GetExtension(selectedCell.Value as string);
-                        
-                    if (forcedFileName != null && string.IsNullOrWhiteSpace(oldFileName))
-                        return;
-
                     string newPath = Path.Combine(dir, forcedFileName ?? oldFileName);
-                    newPath = Path.ChangeExtension(newPath, oldExtension);
+                    
+                    string oldExtension = Path.GetExtension(selectedCell.Value as string);
+                    string newExtension = (string.IsNullOrWhiteSpace(oldExtension)) ? exportItemList.OutputFileExtension : oldExtension;
+                    
+                    newPath = Path.ChangeExtension(newPath, newExtension);
 
                     // change cell value, which triggers value changed event to update the export item
                     selectedCell.Value = newPath;
@@ -264,6 +398,68 @@ namespace Max2Babylon
                     foreach (DataGridViewCell selectedCell in pathCells)
                         funcUpdatePath(selectedCell, null);
                 else funcUpdatePath(pathCells[0], SetPathFileDialog.FileName);
+            }
+        }
+
+        private void ShowTexturesFolderDialog(List<DataGridViewCell> pathCells)
+        {
+            
+            if (setTexturesFolderDialog != null)
+            {                
+                return;
+            }
+            
+
+           string intialDirectory = pathCells[0].Value as string;
+
+            if (!Directory.Exists(intialDirectory))
+            {
+                intialDirectory = Loader.Core.GetDir((int)MaxDirectory.ProjectFolder);
+            }
+
+            if (!Directory.Exists(intialDirectory))
+            {
+                intialDirectory = null;
+            }
+
+            setTexturesFolderDialog = new CommonOpenFileDialog()
+            {
+                EnsurePathExists = true,
+                EnsureFileExists = false,
+                AllowNonFileSystemItems = false,
+                DefaultFileName = "Textures",
+                Title = "Select Texture folder. This will be used as output folder for textures of exported item",
+                InitialDirectory = intialDirectory,
+                IsFolderPicker = true
+            };
+
+            if (setTexturesFolderDialog.ShowDialog() == CommonFileDialogResult.Ok)
+            {
+                string selectedFolder = setTexturesFolderDialog.FileName;
+
+                Action<DataGridViewCell, string> funcUpdatePath = (DataGridViewCell selectedCell, string forcedFileName) => 
+                {
+                    string oldFolderName = Path.GetDirectoryName(selectedCell.Value as string);
+                        
+                    if (forcedFileName != null && string.IsNullOrWhiteSpace(oldFolderName))
+                        return;
+
+                    // change cell value, which triggers value changed event to update the export item
+                    selectedCell.Value = selectedFolder;
+                    setTexturesFolderDialog = null;
+                };
+
+                if (pathCells.Count > 1)
+                {
+                    foreach (DataGridViewCell selectedCell in pathCells)
+                    {
+                        funcUpdatePath(selectedCell, null);
+                    }
+                }
+                else
+                {
+                    funcUpdatePath(pathCells[0], selectedFolder);
+                }
             }
         }
 

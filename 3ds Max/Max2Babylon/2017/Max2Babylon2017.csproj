@@ -67,11 +67,37 @@
       <HintPath>..\..\..\..\..\Repos\Babylon.js\Exporters\3ds Max\Max2Babylon\2015\Refs\Autodesk.Max.dll</HintPath>
       <Private>False</Private>
     </Reference>
+    <Reference Include="ExplorerFramework">
+      <HintPath>Refs\ExplorerFramework.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
     <Reference Include="GDImageLibrary">
       <HintPath>..\..\Refs\GDImageLibrary.dll</HintPath>
     </Reference>
+    <Reference Include="ManagedServices, Version=0.0.0.0, Culture=neutral, processorArchitecture=AMD64">
+      <SpecificVersion>False</SpecificVersion>
+      <HintPath>Refs\ManagedServices.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="MaxCustomControls">
+      <HintPath>Refs\MaxCustomControls.dll</HintPath>
+      <Private>False</Private>
+    </Reference>
+    <Reference Include="Microsoft.WindowsAPICodePack">
+      <HintPath>..\..\packages\Microsoft.WindowsAPICodePack-Core.1.1.0.0\lib\Microsoft.WindowsAPICodePack.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.WindowsAPICodePack.Shell">
+      <HintPath>..\..\packages\Microsoft.WindowsAPICodePack-Shell.1.1.0.0\lib\Microsoft.WindowsAPICodePack.Shell.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.WindowsAPICodePack.ShellExtensions">
+      <HintPath>..\..\packages\Microsoft.WindowsAPICodePack-Shell.1.1.0.0\lib\Microsoft.WindowsAPICodePack.ShellExtensions.dll</HintPath>
+    </Reference>
     <Reference Include="Newtonsoft.Json, Version=12.0.0.0, Culture=neutral, PublicKeyToken=30ad4fe6b2a6aeed, processorArchitecture=MSIL">
       <HintPath>..\..\packages\Newtonsoft.Json.12.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
+    </Reference>
+    <Reference Include="SceneExplorer">
+      <HintPath>Refs\SceneExplorer.dll</HintPath>
+      <Private>False</Private>
     </Reference>
     <Reference Include="SharpDX, Version=3.1.1.0, Culture=neutral, PublicKeyToken=b4dcf0f35e5521f1, processorArchitecture=MSIL">
       <HintPath>..\..\packages\SharpDX.3.1.1\lib\net45\SharpDX.dll</HintPath>
@@ -108,8 +134,17 @@
     <Compile Include="..\BabylonExportActionItem.cs">
       <Link>BabylonExportActionItem.cs</Link>
     </Compile>
+    <Compile Include="..\BabylonLoadAnimations.cs">
+      <Link>BabylonLoadAnimations.cs</Link>
+    </Compile>
     <Compile Include="..\BabylonPropertiesActionItem.cs">
       <Link>BabylonPropertiesActionItem.cs</Link>
+    </Compile>
+    <Compile Include="..\BabylonSkipFlatten.cs">
+      <Link>BabylonSkipFlatten.cs</Link>
+    </Compile>
+    <Compile Include="..\BabylonStoreAnimations.cs">
+      <Link>BabylonStoreAnimations.cs</Link>
     </Compile>
     <Compile Include="..\Descriptor.cs">
       <Link>Descriptor.cs</Link>
@@ -123,26 +158,11 @@
     <Compile Include="..\Exporter\BabylonExporter.Camera.cs">
       <Link>Exporter\BabylonExporter.Camera.cs</Link>
     </Compile>
+    <Compile Include="..\Exporter\BabylonExporter.CustomAttributes.cs">
+      <Link>Exporter\BabylonExporter.CustomAttributes.cs</Link>
+    </Compile>
     <Compile Include="..\Exporter\BabylonExporter.cs">
       <Link>Exporter\BabylonExporter.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.AbstractMesh.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.AbstractMesh.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.Camera.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.Camera.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.Material.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.Material.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.Mesh.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.Mesh.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.Texture.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.Texture.cs</Link>
     </Compile>
     <Compile Include="..\Exporter\BabylonExporter.IMaterialExporter.cs">
       <Link>Exporter\BabylonExporter.IMaterialExporter.cs</Link>
@@ -150,11 +170,11 @@
     <Compile Include="..\Exporter\BabylonExporter.Light.cs">
       <Link>Exporter\BabylonExporter.Light.cs</Link>
     </Compile>
+    <Compile Include="..\Exporter\BabylonExporter.Logger.cs">
+      <Link>Exporter\BabylonExporter.Logger.cs</Link>
+    </Compile>
     <Compile Include="..\Exporter\BabylonExporter.Material.cs">
       <Link>Exporter\BabylonExporter.Material.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.Material.Optimiser.cs">
-      <Link>Exporter\BabylonExporter.Material.Optimiser.cs</Link>
     </Compile>
     <Compile Include="..\Exporter\BabylonExporter.Mesh.cs">
       <Link>Exporter\BabylonExporter.Mesh.cs</Link>
@@ -171,11 +191,11 @@
     <Compile Include="..\Exporter\GlobalVertex.cs">
       <Link>Exporter\GlobalVertex.cs</Link>
     </Compile>
-    <Compile Include="..\Exporter\GLTFGlobalVertex.cs">
-      <Link>Exporter\GLTFGlobalVertex.cs</Link>
+    <Compile Include="..\Exporter\MaxExportParameters.cs">
+      <Link>Exporter\MaxExportParameters.cs</Link>
     </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.Light.cs">
-      <Link>Exporter\GLTFGlobalVertex.cs</Link>
+    <Compile Include="..\Exporter\MaxGLTFMaterialExporter.cs">
+      <Link>Exporter\MaxGLTFMaterialExporter.cs</Link>
     </Compile>
     <Compile Include="..\Extensions\ScaleSystem.cs">
       <Link>Extensions\ScaleSystem.cs</Link>
@@ -211,6 +231,14 @@
     <Compile Include="..\Forms\ExporterForm.Designer.cs">
       <Link>Forms\ExporterForm.Designer.cs</Link>
       <DependentUpon>ExporterForm.cs</DependentUpon>
+    </Compile>
+    <Compile Include="..\Forms\LayerSelector.cs">
+      <Link>Forms\LayerSelector.cs</Link>
+      <SubType>Form</SubType>
+    </Compile>
+    <Compile Include="..\Forms\LayerSelector.designer.cs">
+      <Link>Forms\LayerSelector.designer.cs</Link>
+      <DependentUpon>LayerSelector.cs</DependentUpon>
     </Compile>
     <Compile Include="..\Forms\LightPropertiesForm.cs">
       <Link>Forms\LightPropertiesForm.cs</Link>
@@ -263,20 +291,20 @@
     <Compile Include="..\GlobalUtility.cs">
       <Link>GlobalUtility.cs</Link>
     </Compile>
-    <Compile Include="..\JsonTextWriterBounded.cs">
-      <Link>JsonTextWriterBounded.cs</Link>
-    </Compile>
-    <Compile Include="..\JsonTextWriterOptimized.cs">
-      <Link>JsonTextWriterOptimized.cs</Link>
-    </Compile>
     <Compile Include="..\Loader.cs">
       <Link>Loader.cs</Link>
     </Compile>
-    <Compile Include="..\ExportParameters.cs">
-      <Link>ExportParameters.cs</Link>
-    </Compile>
     <Compile Include="..\MaxScriptManager.cs">
       <Link>MaxScriptManager.cs</Link>
+    </Compile>
+    <Compile Include="..\Tools\LayerUtilities.cs">
+      <Link>Tools\LayerUtilities.cs</Link>
+    </Compile>
+    <Compile Include="..\Tools\MeshUtlities.cs">
+      <Link>Tools\MeshUtlities.cs</Link>
+    </Compile>
+    <Compile Include="..\Tools\ScriptsUtilities.cs">
+      <Link>Tools\ScriptsUtilities.cs</Link>
     </Compile>
     <Compile Include="..\Tools\Tools.cs">
       <Link>Tools\Tools.cs</Link>
@@ -287,23 +315,11 @@
     <Compile Include="..\Tools\WebServer.cs">
       <Link>Tools\WebServer.cs</Link>
     </Compile>
-    <Compile Include="..\Exporter\GLTFBufferService.cs">
-      <Link>Exporter\GLTFBufferService.cs</Link>
-    </Compile>
     <Compile Include="..\Exporter\BabylonExporter.ExportItem.cs">
       <Link>Exporter\BabylonExporter.ExportItem.cs</Link>
     </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.Animation.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.Animation.cs</Link>
-    </Compile>
-    <Compile Include="..\Exporter\BabylonExporter.GLTFExporter.Skin.cs">
-      <Link>Exporter\BabylonExporter.GLTFExporter.Skin.cs</Link>
-    </Compile>
     <Compile Include="..\Exporter\BabylonExporter.WorldModifiers.cs">
       <Link>Exporter\BabylonExporter.WorldModifiers.Skin.cs</Link>
-    </Compile>
-    <Compile Include="..\Extensions\ColorExtension.cs">
-      <Link>Extensions\ColorExtension.cs</Link>
     </Compile>
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Properties\Resources.Designer.cs">
@@ -314,7 +330,8 @@
   </ItemGroup>
   <ItemGroup>
     <Content Include="Refs\Autodesk.Max.dll" />
-    <None Include="Resources\Logo_Exporter_v4.jpg" />
+    <Content Include="Refs\ManagedServices.dll" />
+    <None Include="Resources\MaxExporter.png" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="..\Forms\AnimationForm.resx">
@@ -332,6 +349,10 @@
     <EmbeddedResource Include="..\Forms\ExporterForm.resx">
       <Link>Forms\ExporterForm.resx</Link>
       <DependentUpon>ExporterForm.cs</DependentUpon>
+    </EmbeddedResource>
+    <EmbeddedResource Include="..\Forms\LayerSelector.resx">
+      <Link>Forms\LayerSelector.resx</Link>
+      <DependentUpon>LayerSelector.cs</DependentUpon>
     </EmbeddedResource>
     <EmbeddedResource Include="..\Forms\LightPropertiesForm.resx">
       <Link>Forms\LightPropertiesForm.resx</Link>
@@ -371,6 +392,8 @@
   <Import Project="..\..\..\SharedProjects\BabylonExport.Entities\BabylonExport.Entities.projitems" Label="Shared" />
   <Import Project="..\..\..\SharedProjects\BabylonFileConverter\BabylonFileConverter.projitems" Label="Shared" />
   <Import Project="..\..\..\SharedProjects\GltfExport.Entities\GltfExport.Entities.projitems" Label="Shared" />
+  <Import Project="..\..\..\SharedProjects\Babylon2GLTF\Babylon2GLTF.projitems" Label="Shared" />
+  <Import Project="..\..\..\SharedProjects\Utilities\Extensions.projitems" Label="Shared" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
     <PostBuildEvent>call "$(SolutionDir)Max2Babylon\OnPostBuild.bat" "$(ConfigurationName)" 2017</PostBuildEvent>

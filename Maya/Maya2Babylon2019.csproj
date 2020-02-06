@@ -64,17 +64,8 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="BabylonExportActionItem.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Light.cs" />
     <Compile Include="Exporter\BabylonExporter.Material.Optimiser.cs" />
     <Compile Include="Exporter\BabylonExporter.Camera.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Animation.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.AbstractMesh.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Camera.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Material.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Mesh.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Skin.cs" />
-    <Compile Include="Exporter\BabylonExporter.GLTFExporter.Texture.cs" />
     <Compile Include="Exporter\BabylonExporter.Light.cs" />
     <Compile Include="Exporter\BabylonExporter.Material.cs" />
     <Compile Include="Exporter\BabylonExporter.Animation.cs" />
@@ -86,15 +77,20 @@
     <Compile Include="Exporter\BabylonExporter.Logger.cs" />
     <Compile Include="Exporter\BabylonExporter.cs" />
     <Compile Include="Exporter\AnimationGroup.cs" />
+    <Compile Include="Exporter\BabylonExporter.CustomAttributes.cs" />
     <Compile Include="Exporter\GlobalVertex.cs" />
     <Compile Include="Exporter\GLTFGlobalVertex.cs" />
     <Compile Include="Exporter\BabylonExporter.Material.Duplication.cs" />
     <Compile Include="Exporter\MaterialDuplicationData.cs" />
+    <Compile Include="Exporter\PluginNodes\babylonAiStandardSurfaceMaterialNode.cs" />
+    <Compile Include="Exporter\PluginNodes\babylonStandardMaterialNode.cs" />
+    <Compile Include="Exporter\PluginNodes\babylonStingrayPBSMaterialNode.cs" />
     <Compile Include="Extensions\ColorExtension.cs" />
     <Compile Include="Extensions\MColorExtension.cs" />
     <Compile Include="Extensions\MFloatVectorExtension.cs" />
     <Compile Include="Extensions\MFloatPointExtension.cs" />
     <Compile Include="Extensions\MMatrixExtension.cs" />
+    <Compile Include="Extensions\MFnDependencyNodeExtension.cs" />
     <Compile Include="Extensions\MPlugExtension.cs" />
     <Compile Include="Extensions\MPointExtension.cs" />
     <Compile Include="Extensions\MVectorExtension.cs" />
@@ -156,17 +152,54 @@
   <ItemGroup>
     <None Include="Resources\maya_exporter_logo.jpg" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="Resources\MayaExporter.png" />
+  </ItemGroup>
   <Import Project="..\SharedProjects\BabylonExport.Entities\BabylonExport.Entities.projitems" Label="Shared" />
   <Import Project="..\SharedProjects\BabylonFileConverter\BabylonFileConverter.projitems" Label="Shared" />
   <Import Project="..\SharedProjects\GltfExport.Entities\GltfExport.Entities.projitems" Label="Shared" />
+  <Import Project="..\SharedProjects\Utilities\Extensions.projitems" Label="Shared" />
+  <Import Project="..\SharedProjects\Babylon2GLTF\Babylon2GLTF.projitems" Label="Shared" />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <PropertyGroup>
-    <PostBuildEvent>if not exist "$(SolutionDir)assemblies" mkdir "$(SolutionDir)assemblies"
+    <PostBuildEvent>setlocal enabledelayedexpansion
+
+SET configurationName=$(ConfigurationName)
+ECHO %25configurationName%25
+
+if not exist "$(SolutionDir)assemblies" mkdir "$(SolutionDir)assemblies"
 if not exist "$(SolutionDir)assemblies\2019" mkdir "$(SolutionDir)assemblies\2019"
 copy "$(TargetDir)*.dll" "$(SolutionDir)assemblies\2019\"
 del "$(SolutionDir)assemblies\2019\$(TargetName).dll"
 copy "$(TargetPath)" "$(SolutionDir)assemblies\2019\$(TargetName).nll.dll"
 if exist "D:\Programmes\Autodesk\Maya2019\bin\plug-ins\" copy "$(SolutionDir)assemblies\2019\*.dll" "D:\Programmes\Autodesk\Maya2019\bin\plug-ins\"
-if exist "C:\Program Files\Autodesk\Maya2019\bin\plug-ins\" copy "$(SolutionDir)assemblies\2019\*.dll" "C:\Program Files\Autodesk\Maya2019\bin\plug-ins\"</PostBuildEvent>
+if exist "C:\Program Files\Autodesk\Maya2019\bin\plug-ins\" copy "$(SolutionDir)assemblies\2019\*.dll" "C:\Program Files\Autodesk\Maya2019\bin\plug-ins\"
+
+IF "%25configurationName%25"=="Debug" GOTO DebugOnMaya
+GOTO Close
+
+:DebugOnMaya
+if exist "C:\Program Files\Autodesk\Maya2019\bin\maya.exe" START /d "C:\Program Files\Autodesk\Maya2019\bin" maya.exe
+GOTO Close
+
+:Close
+PAUSE
+EXIT</PostBuildEvent>
+  </PropertyGroup>
+  <PropertyGroup>
+    <PreBuildEvent>setlocal enabledelayedexpansion
+
+SET configurationName=$(ConfigurationName)
+ECHO %25configurationName%25
+
+IF "%25configurationName%25"=="Debug" GOTO OnDebug
+GOTO Close
+
+:OnDebug
+taskkill  /im maya.exe /f /fi "STATUS eq RUNNING"
+
+:Close
+PAUSE
+EXIT</PreBuildEvent>
   </PropertyGroup>
 </Project>

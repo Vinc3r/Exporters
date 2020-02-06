@@ -9,15 +9,39 @@ namespace Max2Babylon
 {
     partial class BabylonExporter
     {
+        private bool isMaterialDoubleSided;
+
         private bool IsMeshExportable(IIGameNode meshNode)
         {
-            return IsNodeExportable(meshNode);
+            if (!IsNodeExportable(meshNode))
+            {
+                return false;
+            }
+            if (exportParameters.exportAnimationsOnly)
+            {
+                var gameMesh = meshNode.IGameObject.AsGameMesh();
+                try
+                {
+                    bool initialized = gameMesh.InitializeData; // needed, the property is in fact a method initializing the exporter that has wrongly been auto 
+                                                                // translated into a property because it has no parameters
+                }
+                catch (Exception e)
+                {
+                    RaiseWarning($"Mesh {meshNode.Name} failed to initialize.", 2);
+                }
+
+                if (!isAnimated(meshNode))
+                {
+                    return false;
+                }
+            }
+            return true;
         }
 
         private BabylonNode ExportDummy(IIGameScene scene, IIGameNode meshNode, BabylonScene babylonScene)
         {
             RaiseMessage(meshNode.Name, 1);
-            
+
             var babylonMesh = new BabylonMesh { name = meshNode.Name, id = meshNode.MaxNode.GetGuid().ToString() };
             babylonMesh.isDummy = true;
 
@@ -32,6 +56,33 @@ namespace Max2Babylon
             return babylonMesh;
         }
 
+        private BabylonNode ExportDummy(BabylonNode babylonNode, BabylonScene babylonScene)
+        {
+            var babylonMesh = new BabylonMesh { name = babylonNode.name, id = babylonNode.id };
+            babylonMesh.isDummy = true;
+
+            // Position / rotation / scaling / hierarchy
+            babylonMesh.parentId = babylonNode.parentId;
+            babylonMesh.position = babylonNode.position;
+            babylonMesh.rotation = babylonNode.rotation;
+            babylonMesh.rotationQuaternion = babylonNode.rotationQuaternion;
+            babylonMesh.scaling = babylonNode.scaling;
+
+            // Animations
+            babylonMesh.animations = babylonNode.animations;
+            babylonMesh.extraAnimations = babylonNode.extraAnimations;
+            babylonMesh.autoAnimate = babylonNode.autoAnimate;
+            babylonMesh.autoAnimateFrom = babylonNode.autoAnimateFrom;
+            babylonMesh.autoAnimateTo = babylonNode.autoAnimateTo;
+            babylonMesh.autoAnimateLoop = babylonNode.autoAnimateLoop;
+
+            babylonScene.MeshesList.Add(babylonMesh);
+
+            return babylonMesh;
+        }
+
+        Dictionary<BabylonMesh, IIGameNode> masterMeshMap = new Dictionary<BabylonMesh, IIGameNode>();
+
         private BabylonNode ExportMesh(IIGameScene scene, IIGameNode meshNode, BabylonScene babylonScene)
         {
             if (IsMeshExportable(meshNode) == false)
@@ -42,8 +93,13 @@ namespace Max2Babylon
             RaiseMessage(meshNode.Name, 1);
 
             // Instances
+#if MAX2020
+            var tabs = Loader.Global.INodeTab.Create();
+#else
             var tabs = Loader.Global.NodeTab.Create();
+#endif
             Loader.Global.IInstanceMgr.InstanceMgr.GetInstances(meshNode.MaxNode, tabs);
+
             if (tabs.Count > 1)
             {
                 // For a mesh with instances, we distinguish between master and instance meshes:
@@ -51,87 +107,34 @@ namespace Max2Babylon
                 //      - an instance mesh only stores the info of the node (transform, hierarchy, animations)
 
                 // Check if this mesh has already been exported
-                BabylonMesh babylonMasterMesh = null;
-                var index = 0;
-                while (babylonMasterMesh == null &&
-                       index < tabs.Count)
+                for (int index = 0; index < tabs.Count; index++)
                 {
-#if MAX2017 || MAX2018 || MAX2019
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020
                     var tab = tabs[index];
 #else
                     var tab = tabs[new IntPtr(index)];
 #endif
-
-                    babylonMasterMesh = babylonScene.MeshesList.Find(_babylonMesh => {
-                        // Same id
-                        return _babylonMesh.id == tab.GetGuid().ToString() &&
-                               // Mesh is not a dummy
-                               _babylonMesh.isDummy == false;
-                    });
-
-                    index++;
-                }
-
-                if (babylonMasterMesh != null)
-                {
-                    // Mesh already exported
-                    // Export this node as instance
-
-                    meshNode.MaxNode.MarkAsInstance();
-
-                    var babylonInstanceMesh = new BabylonAbstractMesh
+                    var tabGuid = tab.GetGuid().ToString();
+                    foreach (var masterMeshPair in masterMeshMap)
                     {
-                        id = meshNode.MaxNode.GetGuid().ToString(),
-                        name = meshNode.Name,
-                        pickable = meshNode.MaxNode.GetBoolProperty("babylonjs_checkpickable"),
-                        checkCollisions = meshNode.MaxNode.GetBoolProperty("babylonjs_checkcollisions"),
-                        showBoundingBox = meshNode.MaxNode.GetBoolProperty("babylonjs_showboundingbox"),
-                        showSubMeshesBoundingBox = meshNode.MaxNode.GetBoolProperty("babylonjs_showsubmeshesboundingbox"),
-                        alphaIndex = (int)meshNode.MaxNode.GetFloatProperty("babylonjs_alphaindex", 1000)
-                    };
-
-                    // Physics
-                    var impostorText = meshNode.MaxNode.GetStringProperty("babylonjs_impostor", "None");
-
-                    if (impostorText != "None")
-                    {
-                        switch (impostorText)
+                        // Check if we need to export this instance as an instance mesh.
+                        if (tabGuid == masterMeshPair.Key.id)
                         {
-                            case "Sphere":
-                                babylonInstanceMesh.physicsImpostor = 1;
-                                break;
-                            case "Box":
-                                babylonInstanceMesh.physicsImpostor = 2;
-                                break;
-                            case "Plane":
-                                babylonInstanceMesh.physicsImpostor = 3;
-                                break;
-                            default:
-                                babylonInstanceMesh.physicsImpostor = 0;
-                                break;
+                            // If there is already an exported mesh in the scene that shares this mesh's material, then export it as an instance.
+                            if (masterMeshPair.Key.materialId == null
+                            || (meshNode.NodeMaterial != null && meshNode.NodeMaterial.MaxMaterial.GetGuid().ToString().Equals(masterMeshPair.Value.NodeMaterial.MaxMaterial.GetGuid().ToString())))
+                            {
+                                return ExportInstanceMesh(scene, meshNode, babylonScene, masterMeshPair.Key);
+                            }
                         }
-
-                        babylonInstanceMesh.physicsMass = meshNode.MaxNode.GetFloatProperty("babylonjs_mass");
-                        babylonInstanceMesh.physicsFriction = meshNode.MaxNode.GetFloatProperty("babylonjs_friction", 0.2f);
-                        babylonInstanceMesh.physicsRestitution = meshNode.MaxNode.GetFloatProperty("babylonjs_restitution", 0.2f);
                     }
-
-
-                    // Add instance to master mesh
-                    List<BabylonAbstractMesh> list = babylonMasterMesh.instances != null ? babylonMasterMesh.instances.ToList() : new List<BabylonAbstractMesh>();
-                    list.Add(babylonInstanceMesh);
-                    babylonMasterMesh.instances = list.ToArray();
-
-                    // Export transform / hierarchy / animations
-                    exportNode(babylonInstanceMesh, meshNode, scene, babylonScene);
-
-                    // Animations
-                    exportAnimation(babylonInstanceMesh, meshNode);
-
-                    return babylonInstanceMesh;
                 }
             }
+            return ExportMasterMesh(scene, meshNode, babylonScene);
+        }
 
+        private BabylonNode ExportMasterMesh(IIGameScene scene, IIGameNode meshNode, BabylonScene babylonScene)
+        {
             var gameMesh = meshNode.IGameObject.AsGameMesh();
             try
             {
@@ -148,6 +151,9 @@ namespace Max2Babylon
 
             // Position / rotation / scaling / hierarchy
             exportNode(babylonMesh, meshNode, scene, babylonScene);
+
+            // Export the custom attributes of this mesh
+            babylonMesh.metadata = ExportExtraAttributes(meshNode, babylonScene);
 
             // Sounds
             var soundName = meshNode.MaxNode.GetStringProperty("babylonjs_sound_filename", "");
@@ -196,7 +202,7 @@ namespace Max2Babylon
             }
 
             // Misc.
-#if MAX2017 || MAX2018 || MAX2019
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020
             babylonMesh.isVisible = meshNode.MaxNode.Renderable;
             babylonMesh.receiveShadows = meshNode.MaxNode.RcvShadows;
             babylonMesh.applyFog = meshNode.MaxNode.ApplyAtmospherics;
@@ -220,7 +226,8 @@ namespace Max2Babylon
             IGMatrix skinInitPoseMatrix = Loader.Global.GMatrix.Create(Loader.Global.Matrix3.Create(true));
             List<int> boneIds = null;
             int maxNbBones = 0;
-            if (isSkinned && GetRelevantNodes(skin).Count > 0)  // if the mesh has a skin with at least one bone
+            List<IIGameNode> skinnedBones = GetSkinnedBones(skin);
+            if (isSkinned && skinnedBones.Count > 0)  // if the mesh has a skin with at least one bone
             {
                 var skinAlreadyStored = skins.Find(_skin => IsSkinEqualTo(_skin, skin));
                 if (skinAlreadyStored == null)
@@ -302,7 +309,7 @@ namespace Max2Babylon
                 // The shell material is a passthrough to its baked material.
                 while (mtl != null && (isShellMaterial(mtl) || isDirectXShaderMaterial(mtl)))
                 {
-                    if(isShellMaterial(mtl))
+                    if (isShellMaterial(mtl))
                     {
                         // Retrieve the baked material from the shell material.
                         mtl = GetBakedMaterialFromShellMaterial(mtl);
@@ -314,6 +321,7 @@ namespace Max2Babylon
                     }
                 }
 
+                isMaterialDoubleSided = false;
                 if (mtl != null)
                 {
                     IIGameMaterial unsupportedMaterial = isMaterialSupported(mtl);
@@ -327,6 +335,11 @@ namespace Max2Babylon
                         }
 
                         multiMatsCount = Math.Max(mtl.SubMaterialCount, 1);
+
+                        if (isDoubleSidedMaterial(mtl))
+                        {
+                            isMaterialDoubleSided = true;
+                        }
                     }
                     else
                     {
@@ -350,11 +363,11 @@ namespace Max2Babylon
                 bool hasUV2 = false;
                 for (int i = 0; i < mappingChannels.Count; ++i)
                 {
-                #if MAX2017 || MAX2018 || MAX2019
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020
                     var channelNum = mappingChannels[i];
-                #else
+#else
                     var channelNum = mappingChannels[new IntPtr(i)];
-                #endif
+#endif
                     if (channelNum == 1)
                     {
                         hasUV = true;
@@ -392,7 +405,7 @@ namespace Max2Babylon
                 // Buffers
                 babylonMesh.positions = vertices.SelectMany(v => new[] { v.Position.X, v.Position.Y, v.Position.Z }).ToArray();
                 babylonMesh.normals = vertices.SelectMany(v => new[] { v.Normal.X, v.Normal.Y, v.Normal.Z }).ToArray();
-                
+
                 // Export tangents if option is checked and mesh has tangents
                 if (exportParameters.exportTangents)
                 {
@@ -463,10 +476,8 @@ namespace Max2Babylon
                 {
                     RaiseMessage("Export morph targets", 2);
 
-                    var rawScene = Loader.Core.RootNode;
-
                     // Morph Target Manager
-                    var babylonMorphTargetManager = new BabylonMorphTargetManager();
+                    var babylonMorphTargetManager = new BabylonMorphTargetManager(babylonMesh);
                     babylonScene.MorphTargetManagersList.Add(babylonMorphTargetManager);
                     babylonMesh.morphTargetManagerId = babylonMorphTargetManager.id;
 
@@ -497,13 +508,13 @@ namespace Max2Babylon
                                 var targetVertices = ExtractVertices(babylonMesh, maxMorphTarget, optimizeVertices, faceIndexes);
                                 babylonMorphTarget.positions = targetVertices.SelectMany(v => new[] { v.Position.X, v.Position.Y, v.Position.Z }).ToArray();
 
-                                if (rawScene.GetBoolProperty("babylonjs_export_Morph_Normals", 1))
+                                if (exportParameters.exportMorphNormals)
                                 {
                                     babylonMorphTarget.normals = targetVertices.SelectMany(v => new[] { v.Normal.X, v.Normal.Y, v.Normal.Z }).ToArray();
                                 }
-                               
+
                                 // Tangent
-                                if (exportParameters.exportTangents && rawScene.GetBoolProperty("babylonjs_export_Morph_Tangents"))
+                                if (exportParameters.exportTangents && exportParameters.exportMorphTangents)
                                 {
                                     babylonMorphTarget.tangents = targetVertices.SelectMany(v => v.Tangent).ToArray();
                                 }
@@ -532,8 +543,67 @@ namespace Max2Babylon
             exportAnimation(babylonMesh, meshNode);
 
             babylonScene.MeshesList.Add(babylonMesh);
-
+            masterMeshMap[babylonMesh] = meshNode;
             return babylonMesh;
+        }
+
+        private BabylonNode ExportInstanceMesh(IIGameScene scene, IIGameNode meshNode, BabylonScene babylonScene, BabylonMesh babylonMasterMesh)
+        {
+            meshNode.MaxNode.MarkAsInstance();
+
+            var babylonInstanceMesh = new BabylonAbstractMesh
+            {
+                id = meshNode.MaxNode.GetGuid().ToString(),
+                name = meshNode.Name,
+                pickable = meshNode.MaxNode.GetBoolProperty("babylonjs_checkpickable"),
+                checkCollisions = meshNode.MaxNode.GetBoolProperty("babylonjs_checkcollisions"),
+                showBoundingBox = meshNode.MaxNode.GetBoolProperty("babylonjs_showboundingbox"),
+                showSubMeshesBoundingBox = meshNode.MaxNode.GetBoolProperty("babylonjs_showsubmeshesboundingbox"),
+                alphaIndex = (int)meshNode.MaxNode.GetFloatProperty("babylonjs_alphaindex", 1000)
+            };
+
+            // Export the custom attributes of this mesh
+            babylonInstanceMesh.metadata = ExportExtraAttributes(meshNode, babylonScene);
+
+            // Physics
+            var impostorText = meshNode.MaxNode.GetStringProperty("babylonjs_impostor", "None");
+
+            if (impostorText != "None")
+            {
+                switch (impostorText)
+                {
+                    case "Sphere":
+                        babylonInstanceMesh.physicsImpostor = 1;
+                        break;
+                    case "Box":
+                        babylonInstanceMesh.physicsImpostor = 2;
+                        break;
+                    case "Plane":
+                        babylonInstanceMesh.physicsImpostor = 3;
+                        break;
+                    default:
+                        babylonInstanceMesh.physicsImpostor = 0;
+                        break;
+                }
+
+                babylonInstanceMesh.physicsMass = meshNode.MaxNode.GetFloatProperty("babylonjs_mass");
+                babylonInstanceMesh.physicsFriction = meshNode.MaxNode.GetFloatProperty("babylonjs_friction", 0.2f);
+                babylonInstanceMesh.physicsRestitution = meshNode.MaxNode.GetFloatProperty("babylonjs_restitution", 0.2f);
+            }
+
+
+            // Add instance to master mesh
+            List<BabylonAbstractMesh> list = babylonMasterMesh.instances != null ? babylonMasterMesh.instances.ToList() : new List<BabylonAbstractMesh>();
+            list.Add(babylonInstanceMesh);
+            babylonMasterMesh.instances = list.ToArray();
+
+            // Export transform / hierarchy / animations
+            exportNode(babylonInstanceMesh, meshNode, scene, babylonScene);
+
+            // Animations
+            exportAnimation(babylonInstanceMesh, meshNode);
+
+            return babylonInstanceMesh;
         }
 
         private List<GlobalVertex> ExtractVertices(BabylonAbstractMesh babylonAbstractMesh, IIGameNode maxMorphTarget, bool optimizeVertices, List<int> faceIndexes)
@@ -560,11 +630,11 @@ namespace Max2Babylon
 
         private void ExtractGeometry(BabylonAbstractMesh babylonAbstractMesh, List<GlobalVertex> vertices, List<int> indices, List<BabylonSubMesh> subMeshes, List<int> boneIds, IIGameSkin skin, IIGameMesh unskinnedMesh, IMatrix3 invertedWorldMatrix, IMatrix3 offsetTM, bool hasUV, bool hasUV2, bool hasColor, bool hasAlpha, bool optimizeVertices, int multiMatsCount, IIGameNode meshNode, ref List<int> faceIndexes)
         {
-            List<GlobalVertex>[] verticesAlreadyExported = null;
+            Dictionary<GlobalVertex, List<GlobalVertex>> verticesAlreadyExported = null;
 
             if (optimizeVertices)
             {
-                verticesAlreadyExported = new List<GlobalVertex>[unskinnedMesh.NumberOfVerts];
+                verticesAlreadyExported = new Dictionary<GlobalVertex, List<GlobalVertex>>();
             }
 
             var indexStart = 0;
@@ -606,27 +676,68 @@ namespace Max2Babylon
                 }
                 else
                 {
-                    ITab<IFaceEx> materialFaces = unskinnedMesh.GetFacesFromMatID(materialId);
-                    for (int j = 0; j < materialFaces.Count; ++j)
+                    if (i == 0 || isMaterialDoubleSided == false)
                     {
-                        IFaceEx face = null;
-                        if (storeFaceIndexes)
+                        ITab<IFaceEx> materialFaces = unskinnedMesh.GetFacesFromMatID(materialId);
+                        for (int j = 0; j < materialFaces.Count; ++j)
                         {
-                            // Retreive face
-                            #if MAX2017 || MAX2018 || MAX2019
-                            face = materialFaces[j];
-                            #else
-                            face = materialFaces[new IntPtr(j)];
-                            #endif
+                            IFaceEx face = null;
+                            if (storeFaceIndexes)
+                            {
+                                // Retreive face
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+                                face = materialFaces[j];
+#else
+                                face = materialFaces[new IntPtr(j)];
+#endif
 
-                            // Store face index
-                            faceIndexes.Add(face.MeshFaceIndex);
+                                // Store face index
+                                faceIndexes.Add(face.MeshFaceIndex);
+                            }
+                            else
+                            {
+                                face = unskinnedMesh.GetFace(faceIndexes[indexInFaceIndexesArray++]);
+                            }
+                            ExtractFace(skin, unskinnedMesh, babylonAbstractMesh, invertedWorldMatrix, offsetTM, vertices, indices, hasUV, hasUV2, hasColor, hasAlpha, verticesAlreadyExported, ref indexCount, ref minVertexIndex, ref maxVertexIndex, face, boneIds);
                         }
-                        else
+                    }
+                    else
+                    {
+                        // It's a double sided material
+                        // The back faces are created at runtime
+
+                        // WARNING - Nested multimaterial and double sided material are not supported
+
+                        minVertexIndex = vertices.Count;
+                        maxVertexIndex = vertices.Count * 2 - 1;
+
+                        // Vertices
+                        int nbVertices = vertices.Count;
+                        for (int index = 0; index < nbVertices; index++)
                         {
-                            face = unskinnedMesh.GetFace(faceIndexes[indexInFaceIndexesArray++]);
+                            GlobalVertex vertexOrg = vertices[index];
+
+                            // Duplicate vertex
+                            GlobalVertex vertexNew = new GlobalVertex(vertexOrg);
+
+                            // Inverse back vertices normal
+                            vertexNew.Normal = vertexNew.Normal.MultiplyBy(-1);
+                            vertexNew.Tangent = vertexNew.Tangent.MultiplyBy(-1);
+
+                            vertices.Add(vertexNew);
                         }
-                        ExtractFace(skin, unskinnedMesh, babylonAbstractMesh, invertedWorldMatrix, offsetTM, vertices, indices, hasUV, hasUV2, hasColor, hasAlpha, verticesAlreadyExported, ref indexCount, ref minVertexIndex, ref maxVertexIndex, face, boneIds);
+
+                        // Faces
+                        int nbIndices = indices.Count;
+                        for (int index = 0; index < nbIndices; index += 3)
+                        {
+                            // Duplicate and flip faces
+                            indices.Add(indices[index + 2] + nbIndices);
+                            indices.Add(indices[index + 1] + nbIndices);
+                            indices.Add(indices[index] + nbIndices);
+
+                            indexCount += 3;
+                        }
                     }
                 }
 
@@ -644,7 +755,7 @@ namespace Max2Babylon
             }
         }
 
-        private void ExtractFace(IIGameSkin skin, IIGameMesh unskinnedMesh, BabylonAbstractMesh babylonAbstractMesh, IMatrix3 invertedWorldMatrix, IMatrix3 offsetTM, List<GlobalVertex> vertices, List<int> indices, bool hasUV, bool hasUV2, bool hasColor, bool hasAlpha, List<GlobalVertex>[] verticesAlreadyExported, ref int indexCount, ref int minVertexIndex, ref int maxVertexIndex, IFaceEx face, List<int> boneIds)
+        private void ExtractFace(IIGameSkin skin, IIGameMesh unskinnedMesh, BabylonAbstractMesh babylonAbstractMesh, IMatrix3 invertedWorldMatrix, IMatrix3 offsetTM, List<GlobalVertex> vertices, List<int> indices, bool hasUV, bool hasUV2, bool hasColor, bool hasAlpha, Dictionary<GlobalVertex, List<GlobalVertex>> verticesAlreadyExported, ref int indexCount, ref int minVertexIndex, ref int maxVertexIndex, IFaceEx face, List<int> boneIds)
         {
             int a, b, c;
             // parity is TRUE, if determinant negative ( counter-intuitive convention of 3ds max, see docs... :/ )
@@ -708,7 +819,7 @@ namespace Max2Babylon
         }
 
 
-        int CreateGlobalVertex(IIGameMesh mesh, BabylonAbstractMesh babylonAbstractMesh, IMatrix3 invertedWorldMatrix, IMatrix3 offsetTM, IFaceEx face, int facePart, List<GlobalVertex> vertices, bool hasUV, bool hasUV2, bool hasColor, bool hasAlpha, List<GlobalVertex>[] verticesAlreadyExported, IIGameSkin skin, List<int> boneIds)
+        int CreateGlobalVertex(IIGameMesh mesh, BabylonAbstractMesh babylonAbstractMesh, IMatrix3 invertedWorldMatrix, IMatrix3 offsetTM, IFaceEx face, int facePart, List<GlobalVertex> vertices, bool hasUV, bool hasUV2, bool hasColor, bool hasAlpha, Dictionary<GlobalVertex, List<GlobalVertex>> verticesAlreadyExported, IIGameSkin skin, List<int> boneIds)
         {
             var vertexIndex = (int)face.Vert[facePart];
 
@@ -717,13 +828,14 @@ namespace Max2Babylon
             var vertex = new GlobalVertex
             {
                 BaseIndex = vertexIndex,
-                Position = mesh.GetVertex(vertexIndex, false), // world space
+                Position = mesh.GetVertex(vertexIndex, true), // retrieve in object space to keep precision
                 Normal = mesh.GetNormal((int)face.Norm[facePart], true) // object space (world space was somehow bugged for normal)
             };
             //System.Diagnostics.Debug.WriteLine("vertex normal: " + string.Join(", ", vertex.Normal.ToArray().Select(v => Math.Round(v, 3))));
 
-            // position (from world to local/node space)
-            vertex.Position = invertedWorldMatrix.PointTransform(vertex.Position);
+
+            // convert from object to local/node space
+            vertex.Position = offsetTM.PointTransform(vertex.Position);
 
             // normal (from object to local/node space)
             vertex.Normal = offsetTM.VectorTransform(vertex.Normal).Normalize;
@@ -795,7 +907,7 @@ namespace Max2Babylon
                 float[] weight = new float[4] { 0, 0, 0, 0 };
                 int[] bone = new int[4] { 0, 0, 0, 0 };
                 var nbBones = skin.GetNumberOfBones(vertexIndex);
-                
+
                 int currentVtxBone = 0;
                 int currentSkinBone = 0;
 
@@ -839,8 +951,8 @@ namespace Max2Babylon
                             break;
                         }
 
-                        bone[currentVtxBone-4] = boneIds.IndexOf(skin.GetIGameBone(vertexIndex, currentSkinBone).NodeID);
-                        weight[currentVtxBone-4] = skin.GetWeight(vertexIndex, currentSkinBone);
+                        bone[currentVtxBone - 4] = boneIds.IndexOf(skin.GetIGameBone(vertexIndex, currentSkinBone).NodeID);
+                        weight[currentVtxBone - 4] = skin.GetWeight(vertexIndex, currentSkinBone);
                         ++currentVtxBone;
                     }
 
@@ -859,7 +971,7 @@ namespace Max2Babylon
                                 float boneWeight = skin.GetWeight(vertexIndex, currentSkinBone);
                                 if (boneWeight <= 0)
                                     continue;
-                                RaiseError("Too many bone influences per vertex for vertexIndex: "+ vertexIndex + ". Babylon.js only supports up to 8 bone influences per vertex.", 2);
+                                RaiseError("Too many bone influences per vertex for vertexIndex: " + vertexIndex + ". Babylon.js only supports up to 8 bone influences per vertex.", 2);
                                 break;
                             }
                         }
@@ -867,24 +979,22 @@ namespace Max2Babylon
                 }
             }
 
+            // if we are optmizing our exported vertices, check that a hash-equivalent vertex was already exported.
             if (verticesAlreadyExported != null)
             {
-                if (verticesAlreadyExported[vertexIndex] != null)
+                if (verticesAlreadyExported.ContainsKey(vertex))
                 {
-                    var index = verticesAlreadyExported[vertexIndex].IndexOf(vertex);
-
-                    if (index > -1)
-                    {
-                        return verticesAlreadyExported[vertexIndex][index].CurrentIndex;
-                    }
+                    verticesAlreadyExported[vertex].Add(vertex);
+                    return verticesAlreadyExported[vertex].ElementAt(0).CurrentIndex;
                 }
                 else
                 {
-                    verticesAlreadyExported[vertexIndex] = new List<GlobalVertex>();
+                    verticesAlreadyExported[vertex] = new List<GlobalVertex>();
+                    var modifiedVertex = new GlobalVertex(vertex);
+                    modifiedVertex.CurrentIndex = vertices.Count;
+                    verticesAlreadyExported[vertex].Add(modifiedVertex);
+                    vertex = modifiedVertex;
                 }
-
-                vertex.CurrentIndex = vertices.Count;
-                verticesAlreadyExported[vertexIndex].Add(vertex);
             }
 
             vertices.Add(vertex);
@@ -908,7 +1018,7 @@ namespace Max2Babylon
         {
             // Position / rotation / scaling
             var localTM = maxGameNode.GetLocalTM(0);
-            
+
             // use babylon decomposition, as 3ds max built-in values are no correct
             var tm_babylon = new BabylonMatrix();
             tm_babylon.m = localTM.ToArray();
@@ -936,23 +1046,26 @@ namespace Max2Babylon
 
         private void exportAnimation(BabylonNode babylonNode, IIGameNode maxGameNode)
         {
-            var animations = new List<BabylonAnimation>();
-
-            GenerateCoordinatesAnimations(maxGameNode, animations);
-
-            if (!ExportFloatController(maxGameNode.MaxNode.VisController, "visibility", animations))
+            if (exportParameters.exportAnimations)
             {
-                ExportFloatAnimation("visibility", animations, key => new[] { maxGameNode.MaxNode.GetVisibility(key, Tools.Forever) });
-            }
+                var animations = new List<BabylonAnimation>();
+                
+                GenerateCoordinatesAnimations(maxGameNode, animations);
+                
+                if (!ExportFloatController(maxGameNode.MaxNode.VisController, "visibility", animations))
+                {
+                    ExportFloatAnimation("visibility", animations, key => new[] { maxGameNode.MaxNode.GetVisibility(key, Tools.Forever) });
+                }
 
-            babylonNode.animations = animations.ToArray();
+                babylonNode.animations = animations.ToArray();
 
-            if (maxGameNode.MaxNode.GetBoolProperty("babylonjs_autoanimate", 1))
-            {
-                babylonNode.autoAnimate = true;
-                babylonNode.autoAnimateFrom = (int)maxGameNode.MaxNode.GetFloatProperty("babylonjs_autoanimate_from");
-                babylonNode.autoAnimateTo = (int)maxGameNode.MaxNode.GetFloatProperty("babylonjs_autoanimate_to", 100);
-                babylonNode.autoAnimateLoop = maxGameNode.MaxNode.GetBoolProperty("babylonjs_autoanimateloop", 1);
+                if (maxGameNode.MaxNode.GetBoolProperty("babylonjs_autoanimate", 1))
+                {
+                    babylonNode.autoAnimate = true;
+                    babylonNode.autoAnimateFrom = (int)maxGameNode.MaxNode.GetFloatProperty("babylonjs_autoanimate_from");
+                    babylonNode.autoAnimateTo = (int)maxGameNode.MaxNode.GetFloatProperty("babylonjs_autoanimate_to", 100);
+                    babylonNode.autoAnimateLoop = maxGameNode.MaxNode.GetBoolProperty("babylonjs_autoanimateloop", 1);
+                }
             }
         }
 
