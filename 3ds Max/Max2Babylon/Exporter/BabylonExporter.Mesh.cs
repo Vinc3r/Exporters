@@ -1,4 +1,4 @@
-﻿using Autodesk.Max;
+using Autodesk.Max;
 using BabylonExport.Entities;
 using System;
 using System.Collections.Generic;
@@ -93,7 +93,7 @@ namespace Max2Babylon
             RaiseMessage(meshNode.Name, 1);
 
             // Instances
-#if MAX2020
+#if MAX2020 || MAX2021
             var tabs = Loader.Global.INodeTab.Create();
 #else
             var tabs = Loader.Global.NodeTab.Create();
@@ -109,7 +109,7 @@ namespace Max2Babylon
                 // Check if this mesh has already been exported
                 for (int index = 0; index < tabs.Count; index++)
                 {
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
                     var tab = tabs[index];
 #else
                     var tab = tabs[new IntPtr(index)];
@@ -202,7 +202,7 @@ namespace Max2Babylon
             }
 
             // Misc.
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
             babylonMesh.isVisible = meshNode.MaxNode.Renderable;
             babylonMesh.receiveShadows = meshNode.MaxNode.RcvShadows;
             babylonMesh.applyFog = meshNode.MaxNode.ApplyAtmospherics;
@@ -363,7 +363,7 @@ namespace Max2Babylon
                 bool hasUV2 = false;
                 for (int i = 0; i < mappingChannels.Count; ++i)
                 {
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
                     var channelNum = mappingChannels[i];
 #else
                     var channelNum = mappingChannels[new IntPtr(i)];
@@ -520,12 +520,15 @@ namespace Max2Babylon
                                 }
 
                                 // Animations
-                                var animations = new List<BabylonAnimation>();
-                                var morphWeight = morpher.GetMorphWeight(i);
-                                ExportFloatGameController(morphWeight, "influence", animations);
-                                if (animations.Count > 0)
+                                if (exportParameters.exportAnimations)
                                 {
-                                    babylonMorphTarget.animations = animations.ToArray();
+                                    var animations = new List<BabylonAnimation>();
+                                    var morphWeight = morpher.GetMorphWeight(i);
+                                    ExportFloatGameController(morphWeight, "influence", animations);
+                                    if (animations.Count > 0)
+                                    {
+                                        babylonMorphTarget.animations = animations.ToArray();
+                                    }
                                 }
                             }
                         }
@@ -685,7 +688,7 @@ namespace Max2Babylon
                             if (storeFaceIndexes)
                             {
                                 // Retreive face
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
                                 face = materialFaces[j];
 #else
                                 face = materialFaces[new IntPtr(j)];
@@ -837,6 +840,17 @@ namespace Max2Babylon
             // convert from object to local/node space
             vertex.Position = offsetTM.PointTransform(vertex.Position);
 
+            // Apply unit conversion factor to meter
+            // <!>
+            // For some reason the following code is not working (resulting in ugly rigged mesh)
+            // vertex.Position = (vertex.Position.Clone()).MultiplyBy(scaleFactor); // cloning or not give same results
+            // Instead, create Point3 from scratch
+            // </!>
+            vertex.Position = Loader.Global.Point3.Create(
+                vertex.Position[0] * scaleFactorToMeters,
+                vertex.Position[1] * scaleFactorToMeters,
+                vertex.Position[2] * scaleFactorToMeters);
+
             // normal (from object to local/node space)
             vertex.Normal = offsetTM.VectorTransform(vertex.Normal).Normalize;
 
@@ -862,7 +876,7 @@ namespace Max2Babylon
                     }
                 }
                 var texCoord = mesh.GetMapVertex(1, indices[facePart]);
-                vertex.UV = Loader.Global.Point2.Create(texCoord.X, -texCoord.Y);
+                vertex.UV = Loader.Global.Point2.Create(texCoord.X, 1 -texCoord.Y);
             }
 
             if (hasUV2)
@@ -876,7 +890,7 @@ namespace Max2Babylon
                     }
                 }
                 var texCoord = mesh.GetMapVertex(2, indices[facePart]);
-                vertex.UV2 = Loader.Global.Point2.Create(texCoord.X, -texCoord.Y);
+                vertex.UV2 = Loader.Global.Point2.Create(texCoord.X, 1 -texCoord.Y);
             }
 
             if (hasColor)
@@ -1042,6 +1056,11 @@ namespace Max2Babylon
             }
             babylonAbstractMesh.scaling = new[] { s_babylon.X, s_babylon.Y, s_babylon.Z };
             babylonAbstractMesh.position = new[] { t_babylon.X, t_babylon.Y, t_babylon.Z };
+
+            // Apply unit conversion factor to meter
+            babylonAbstractMesh.position[0] *= scaleFactorToMeters;
+            babylonAbstractMesh.position[1] *= scaleFactorToMeters;
+            babylonAbstractMesh.position[2] *= scaleFactorToMeters;
         }
 
         private void exportAnimation(BabylonNode babylonNode, IIGameNode maxGameNode)

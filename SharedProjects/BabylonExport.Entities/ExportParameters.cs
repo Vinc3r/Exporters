@@ -1,4 +1,4 @@
-﻿using Utilities;
+using Utilities;
 using GLTFExport.Entities;
 
 namespace BabylonExport.Entities
@@ -19,6 +19,7 @@ namespace BabylonExport.Entities
         public bool exportAnimations = true;
         public bool exportAnimationsOnly = false;
         public bool exportOnlySelected = false;
+        public bool exportTextures = true;
         public bool bakeAnimationFrames = false;
         public bool optimizeAnimations = true;
         public bool optimizeVertices = true;

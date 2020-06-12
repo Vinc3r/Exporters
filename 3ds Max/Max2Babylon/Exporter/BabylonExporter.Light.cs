@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Autodesk.Max;
 using BabylonExport.Entities;
@@ -65,10 +65,9 @@ namespace Max2Babylon
             // Export the custom attributes of this light
             babylonLight.metadata = ExportExtraAttributes(lightNode, babylonScene);
 
-            // If the light has a children and the export is to babylon, add a dummy
             // To preserve the position/rotation and the hierarchy, we create a dummy that will contains as direct children the light and the light children
             // The light will have no children. The dummy will contains the position and rotation animations.
-            bool createDummy = isBabylonExported && (lightNode.ChildCount > 0);
+            bool createDummy = lightNode.ChildCount > 0;
             BabylonNode dummy = null;
             if (createDummy)
             {
@@ -76,6 +75,7 @@ namespace Max2Babylon
                 dummy.name = "_" + dummy.name + "_";
                 babylonLight.id = Guid.NewGuid().ToString();
                 babylonLight.parentId = dummy.id;
+                babylonLight.hasDummy = true;
             }
             else
             {
@@ -116,7 +116,7 @@ namespace Max2Babylon
             {
                 if (lightState.Type == LightType.DirectLgt || lightState.Type == LightType.SpotLgt || lightState.Type == LightType.OmniLgt)
                 {
-                    ExportShadowGenerator(lightNode.MaxNode, babylonScene);
+                    ExportShadowGenerator(lightNode.MaxNode, babylonScene, babylonLight);
                 }
                 else
                 {
@@ -147,7 +147,7 @@ namespace Max2Babylon
                     var targetPosition = targetWm.Translation;
 
                     var direction = targetPosition.Subtract(position).Normalize;
-                    babylonLight.direction = new[] { direction.X, direction.Y, direction.Z };
+                    babylonLight.direction = new[]   { direction.X, direction.Y, direction.Z };
                 }
                 else
                 {
@@ -183,7 +183,7 @@ namespace Max2Babylon
 
                     foreach (var meshNode in maxScene.NodesListBySuperClass(SClass_ID.Geomobject))
                     {
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
                         if (meshNode.CastShadows)
 #else
                         if (meshNode.CastShadows == 1)

@@ -1,4 +1,5 @@
-﻿using System.Runtime.Serialization;
+using System.Runtime.Serialization;
+
 
 namespace GLTFExport.Entities
 {
@@ -8,7 +9,12 @@ namespace GLTFExport.Entities
         [DataMember(IsRequired = true)]
         public int index { get; set; }
 
-        [DataMember(EmitDefaultValue = false)]
+        [DataMember]
         public int? texCoord { get; set; }
+
+        public bool ShouldSerializetexCoord()
+        {
+            return (this.texCoord != null && this.texCoord != 0);
+        }
     }
 }

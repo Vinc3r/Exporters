@@ -1,8 +1,9 @@
-﻿using Autodesk.Maya.OpenMaya;
+using Autodesk.Maya.OpenMaya;
 using BabylonExport.Entities;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Utilities;
 
 namespace Maya2Babylon
 {
@@ -12,8 +13,12 @@ namespace Maya2Babylon
         public Dictionary<int, float> valuePerFrame = new Dictionary<int, float>();
     }
 
+    enum AnimationInterpolationMode { Linear };
+
     internal partial class BabylonExporter
     {
+        private float _MaxRotationalKeyframeDifferenceDegrees = 179f;
+
         /// <summary>
         /// Export TRS animations of the transform
         /// </summary>
@@ -89,6 +94,11 @@ namespace Maya2Babylon
                 position[2] *= -1;
                 rotationQuaternion[0] *= -1;
                 rotationQuaternion[1] *= -1;
+
+                // Apply unit conversion factor to meter
+                position[0] *= scaleFactorToMeters;
+                position[1] *= scaleFactorToMeters;
+                position[2] *= scaleFactorToMeters;
 
                 // create animation key for each property
                 for (int indexAnimation = 0; indexAnimation < babylonAnimationProperties.Length; indexAnimation++)
@@ -202,27 +212,31 @@ namespace Maya2Babylon
                 //Get the value for each curves
                 MGlobal.executeCommand("keyframe - q -vc -absolute " + animCurv + ";", keysValue);
 
+                // Switch coordinate system at object level
                 if (animCurv.EndsWith("translateZ") || animCurv.EndsWith("rotateX") || animCurv.EndsWith("rotateY"))
                 {
-                    for (int index = 0; index < keysTime.Count; index++)
+                    for (int index = 0; index < keysValue.Count; index++)
                     {
-                        // Switch coordinate system at object level
-                        int key = keysTime[index];
-                        if (animCurvData.valuePerFrame.ContainsKey(key) == false)
-                        {
-                            animCurvData.valuePerFrame.Add(key, (float)keysValue[index] * -1.0f);
-                        }
+                        keysValue[index] *= -1.0f;
                     }
                 }
-                else
+
+                // Apply unit conversion factor to meter
+                if (animCurv.Contains("translate"))
                 {
-                    for (int index = 0; index < keysTime.Count; index++)
+                    for (int index = 0; index < keysValue.Count; index++)
                     {
-                        int key = keysTime[index];
-                        if (animCurvData.valuePerFrame.ContainsKey(key) == false)
-                        {
-                            animCurvData.valuePerFrame.Add(key, (float)keysValue[index]);
-                        }
+                        keysValue[index] *= scaleFactorToMeters;
+                    }
+                }
+
+                // Store data
+                for (int index = 0; index < keysTime.Count; index++)
+                {
+                    int key = keysTime[index];
+                    if (animCurvData.valuePerFrame.ContainsKey(key) == false)
+                    {
+                        animCurvData.valuePerFrame.Add(key, (float)keysValue[index]);
                     }
                 }
             }
@@ -313,15 +327,51 @@ namespace Maya2Babylon
                 // Convert euler to quaternion angles
                 if (indexAnimationProperty == 1) // Rotation
                 {
-                    foreach (var babylonAnimationKey in babylonAnimationKeys)
+                    BabylonAnimationKey nextBabylonAnimationKey = null;
+                    BabylonVector3 nextBabylonAnimationEulerAngles = null;
+                    int subdivisions = 0;
+
+                    for (int keyframeIndex = 0; keyframeIndex < babylonAnimationKeys.Count; ++keyframeIndex)
                     {
-                        BabylonVector3 eulerAngles = BabylonVector3.FromArray(babylonAnimationKey.values);
-                        BabylonVector3 eulerAnglesRadians = eulerAngles * (float)(Math.PI / 180);
+                        nextBabylonAnimationEulerAngles = null;
+                        var babylonAnimationKey = babylonAnimationKeys[keyframeIndex];
+                        BabylonVector3 babylonAnimationEulerAngles = BabylonVector3.FromArray(babylonAnimationKey.values);
+                        if (keyframeIndex < babylonAnimationKeys.Count - 1)
+                        {
+                            nextBabylonAnimationKey = babylonAnimationKeys[keyframeIndex + 1];
+                            nextBabylonAnimationEulerAngles = BabylonVector3.FromArray(nextBabylonAnimationKey.values);
+                        }
+
+                        if (nextBabylonAnimationEulerAngles != null)
+                        {
+                            var rotationDiff = nextBabylonAnimationEulerAngles - babylonAnimationEulerAngles;
+                            var frameDiff = (float)(nextBabylonAnimationKey.frame - babylonAnimationKey.frame);
+
+                            // if any of our rotation axes have a keyframe diff large enough to lose information when converted to quaternion, break it down into a number of sub keyframes.
+                            var largestRotationalComponentDiff = Math.Max(Math.Max(Math.Abs(rotationDiff.X), Math.Abs(rotationDiff.Y)), Math.Abs(rotationDiff.Z));
+                            if (largestRotationalComponentDiff > _MaxRotationalKeyframeDifferenceDegrees && largestRotationalComponentDiff != 360.0f && !(subdivisions > 0))
+                            {
+                                subdivisions = Convert.ToInt32(Math.Ceiling(largestRotationalComponentDiff / _MaxRotationalKeyframeDifferenceDegrees));
+                                this.RaiseWarning($"Animation Track \"{mayaAnimationProperty}\": Frames {babylonAnimationKey.frame} and {nextBabylonAnimationKey.frame} have a rotation difference of {largestRotationalComponentDiff} that is larger than {_MaxRotationalKeyframeDifferenceDegrees} degrees. Interpolating with {subdivisions} additional keyframes.", 2);
+                                for (int subdivision = 1; subdivision <= subdivisions; ++subdivision)
+                                {
+                                    var newKeyframe = babylonAnimationKey.frame + (frameDiff * ((float)subdivision / (float)(subdivisions + 1)));
+                                    var newKeyframeValues = InterpolateBetweenRotationalKeyframes(babylonAnimationKey, nextBabylonAnimationKey, newKeyframe, AnimationInterpolationMode.Linear);
+                                    var subdividedAnimationKey = new BabylonAnimationKey() { frame = newKeyframe, values = newKeyframeValues };
+                                    babylonAnimationKeys.Insert(keyframeIndex + subdivision, subdividedAnimationKey);
+                                    this.RaiseWarning($"Frame inserted at {newKeyframe}", 3);
+                                }
+                                subdivisions += 1;
+                            }
+                            if (subdivisions > 0) subdivisions -= 1;
+                        }
+
+                        BabylonVector3 eulerAnglesRadians = babylonAnimationEulerAngles * (float)(Math.PI / 180);
                         BabylonQuaternion quaternionAngles = eulerAnglesRadians.toQuaternion(rotationOrder);
                         babylonAnimationKey.values = quaternionAngles.ToArray();
                     }
                 }
-                
+
                 var keysFull = new List<BabylonAnimationKey>(babylonAnimationKeys);
 
                 // Optimization
@@ -348,6 +398,20 @@ namespace Maya2Babylon
             return animationsObject;
         }
 
+        static float[] InterpolateBetweenRotationalKeyframes(BabylonAnimationKey from, BabylonAnimationKey to, float frame, AnimationInterpolationMode interpolationMode)
+        {
+            float frameDiffNormalized = (frame - from.frame)/(to.frame - from.frame);
+            frameDiffNormalized = Math.Min(frameDiffNormalized, 1.0f);
+            frameDiffNormalized = Math.Max(frameDiffNormalized, 0.0f);
+
+            switch (interpolationMode)
+            {
+                case AnimationInterpolationMode.Linear:
+                default:
+                    return MathUtilities.LerpEulerAngle(from.values, to.values, frameDiffNormalized);
+            }
+        }
+
         static void OptimizeAnimations(List<BabylonAnimationKey> keys, bool removeLinearAnimationKeys)
         {
             for (int ixFirst = keys.Count - 3; ixFirst >= 0; --ixFirst)
@@ -364,6 +428,11 @@ namespace Maya2Babylon
         }
 
         static float[] weightedLerp(int frame0, int frame1, int frame2, float[] value0, float[] value2)
+        {
+            return weightedLerp(frame0, frame1, frame2, value0, value2);
+        }
+
+        static float[] weightedLerp(float frame0, float frame1, float frame2, float[] value0, float[] value2)
         {
             double weight2 = (frame1 - frame0) / (double)(frame2 - frame0);
             double weight0 = 1 - weight2;
@@ -416,6 +485,11 @@ namespace Maya2Babylon
             rotationQuaternion[0] *= -1;
             rotationQuaternion[1] *= -1;
 
+            // Apply unit conversion factor to meter
+            position[0] *= scaleFactorToMeters;
+            position[1] *= scaleFactorToMeters;
+            position[2] *= scaleFactorToMeters;
+
             // The composed matrix
             return BabylonMatrix.Compose(new BabylonVector3(scaling[0], scaling[1], scaling[2]),   // scaling
                                                 new BabylonQuaternion(rotationQuaternion[0], rotationQuaternion[1], rotationQuaternion[2], rotationQuaternion[3]), // rotation
@@ -448,7 +522,7 @@ namespace Maya2Babylon
             OptimizeAnimations(keys, false); // Do not remove linear animation keys for bones
 
             // Ensure animation has at least 2 frames
-            if (IsAnimationKeysRelevant(keys, "_matrix"))
+            if (IsAnimationKeysRelevant(keys, "_matrix", GetBabylonMatrix(mFnTransform, start).m.ToArray()))
             {
                 // Animations
                 animation = new BabylonAnimation()
@@ -486,7 +560,7 @@ namespace Maya2Babylon
         /// <param name="keys">Animation key frames</param>
         /// <param name="property">The target property of the animation</param>
         /// <returns></returns>
-        private bool IsAnimationKeysRelevant(List<BabylonAnimationKey> keys, string property)
+        private bool IsAnimationKeysRelevant(List<BabylonAnimationKey> keys, string property, float[] expectedValues = null)
         {
             if (keys.Count > 1)
             {
@@ -497,19 +571,64 @@ namespace Maya2Babylon
                         switch(property)
                         {
                             case "scaling":
-                                if (keys[0].values.IsEqualTo( new BabylonVector3(1,1,1).ToArray()))
+                                expectedValues = expectedValues == null ? new BabylonVector3(1, 1, 1).ToArray() : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
                                 {
                                     return false;
                                 }
                                 break;
                             case "rotationQuaternion":
-                                if (keys[0].values.IsEqualTo(new BabylonQuaternion(0,0,0,1).ToArray()))
+                                expectedValues = expectedValues == null ? new BabylonQuaternion(0, 0, 0, 1).ToArray() : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
                                 {
                                     return false;
                                 }
                                 break;
                             case "position":
-                                if (keys[0].values.IsEqualTo(new BabylonVector3(0,0,0).ToArray()))
+                                expectedValues = expectedValues == null ? new BabylonVector3(0, 0, 0).ToArray() : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
+                                {
+                                    return false;
+                                }
+                                break;
+                            case "_matrix":
+                                expectedValues = expectedValues == null ? BabylonMatrix.Identity().m : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
+                                {
+                                    return false;
+                                }
+                                break;
+                            case "uOffset":
+                                expectedValues = expectedValues == null ? new float[1] { 0 } : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
+                                {
+                                    return false;
+                                }
+                                break;
+                            case "vOffset":
+                                expectedValues = expectedValues == null ? new float[1] { 0 } : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
+                                {
+                                    return false;
+                                }
+                                break;
+                            case "uScale":
+                                expectedValues = expectedValues == null ? new float[1] { 1 } : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
+                                {
+                                    return false;
+                                }
+                                break;
+                            case "vScale":
+                                expectedValues = expectedValues == null ? new float[1] { 1 } : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
+                                {
+                                    return false;
+                                }
+                                break;
+                            case "wAng":
+                                expectedValues = expectedValues == null ? new float[1] { 0 } : expectedValues;
+                                if (keys[0].values.IsEqualTo(expectedValues))
                                 {
                                     return false;
                                 }
@@ -893,6 +1012,8 @@ namespace Maya2Babylon
 
                 // Select usefull keys
                 var keys = animation.keysFull.FindAll(k => from <= k.frame && k.frame <= to);
+                AddBoundaryKeyframes(animation, keys, from, to);
+
                 bool keysInRangeAreRelevant = true;
 
                 // Optimize these keys
@@ -901,8 +1022,8 @@ namespace Maya2Babylon
                     OptimizeAnimations(keys, true);
                     keysInRangeAreRelevant = IsAnimationKeysRelevant(keys, animation.property);
 
-                    // if we are baking the animation frames, then do a less efficient check against all frames in the scene for this animation channel if the first check fails.
-                    if (!keysInRangeAreRelevant && exportParameters.bakeAnimationFrames)
+                    // Do a less efficient check against all frames in the scene for this animation channel if the first check fails, to make sure we aren't overoptimizing
+                    if (!keysInRangeAreRelevant)
                     {
                         List<BabylonAnimationKey> optimizedKeysFull = new List<BabylonAnimationKey>(nodeAnimation.keysFull);
                         OptimizeAnimations(optimizedKeysFull, true);
@@ -933,6 +1054,8 @@ namespace Maya2Babylon
                 // Select usefull keys
                 var keys = animation.keysFull.FindAll(k => from <= k.frame && k.frame <= to);
 
+                AddBoundaryKeyframes(animation, keys, from, to);
+
                 bool keysInRangeAreRelevant = true;
 
                 // Optimize these keys
@@ -942,8 +1065,8 @@ namespace Maya2Babylon
                     OptimizeAnimations(keys, true);
                     keysInRangeAreRelevant = IsAnimationKeysRelevant(keys, animation.property);
 
-                    // if we are baking the animation frames, then do a less efficient check against all frames in the scene for this animation channel if the first check fails.
-                    if (!keysInRangeAreRelevant && exportParameters.bakeAnimationFrames)
+                    // Do a less efficient check against all frames in the scene for this animation channel if the first check fails, to make sure we aren't overoptimizing
+                    if (!keysInRangeAreRelevant)
                     {
                         List<BabylonAnimationKey> optimizedKeysFull = new List<BabylonAnimationKey>(animation.keysFull);
                         OptimizeAnimations(optimizedKeysFull, true);
@@ -972,6 +1095,8 @@ namespace Maya2Babylon
             // Select usefull keys
             var keys = animation.keysFull.FindAll(k => from <= k.frame && k.frame <= to);
 
+            AddBoundaryKeyframes(animation, keys, from, to);
+
             bool keysInRangeAreRelevant = true;
 
             // Optimize these keys
@@ -982,8 +1107,8 @@ namespace Maya2Babylon
                 OptimizeAnimations(keys, false);
                 keysInRangeAreRelevant = IsAnimationKeysRelevant(keys, animation.property);
 
-                // if we are baking the animation frames, then do a less efficient check against all frames in the scene for this animation channel if the first check fails.
-                if (!keysInRangeAreRelevant && exportParameters.bakeAnimationFrames)
+                // Do a less efficient check against all frames in the scene for this animation channel if the first check fails, to make sure we aren't overoptimizing
+                if (!keysInRangeAreRelevant)
                 {
                     List<BabylonAnimationKey> optimizedKeysFull = new List<BabylonAnimationKey>(animation.keysFull);
                     OptimizeAnimations(optimizedKeysFull, true);
@@ -999,6 +1124,50 @@ namespace Maya2Babylon
             }
 
             return subAnimations;
+        }
+
+        private void AddBoundaryKeyframes(BabylonAnimation animation, List<BabylonAnimationKey> keysInRange, float from, float to)
+        {
+            // Add extra boundary keyframes to start and end of segment if appropriate
+            // add a first frame key if we need to:
+            if (!keysInRange.Any(key => key.frame == from))
+            {
+                var lastKeyBeforeFrom = animation.keysFull.LastOrDefault(key => key.frame < from);
+                if (lastKeyBeforeFrom != null)
+                {
+                    var firstKeyAfterFrom = animation.keysFull.FirstOrDefault(key => key.frame > from);
+                    var interpolatedKey = new BabylonAnimationKey() { frame = from };
+                    if (firstKeyAfterFrom != null)
+                    {
+                        interpolatedKey.values = BabylonAnimationKey.Interpolate(animation, lastKeyBeforeFrom, firstKeyAfterFrom, from);
+                    }
+                    else
+                    {
+                        interpolatedKey.values = new List<float>(firstKeyAfterFrom.values).ToArray();
+                    }
+                    keysInRange.Insert(0, interpolatedKey);
+                }
+            }
+
+            // add a last frame key if we need to:
+            if (!keysInRange.Any(key => key.frame == to))
+            {
+                var lastKeyBeforeTo = animation.keysFull.LastOrDefault(key => key.frame < to);
+                if (lastKeyBeforeTo != null)
+                {
+                    var firstKeyAfterTo = animation.keysFull.FirstOrDefault(key => key.frame > to);
+                    var interpolatedKey = new BabylonAnimationKey() { frame = to };
+                    if (firstKeyAfterTo != null)
+                    {
+                        interpolatedKey.values = BabylonAnimationKey.Interpolate(animation, lastKeyBeforeTo, firstKeyAfterTo, to);
+                    }
+                    else
+                    {
+                        interpolatedKey.values = new List<float>(lastKeyBeforeTo.values).ToArray();
+                    }
+                    keysInRange.Add(interpolatedKey);
+                }
+            }
         }
 
         private BabylonAnimation CreatePositionAnimation(float from, float to, float[] position)

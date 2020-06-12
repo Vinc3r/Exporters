@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using Autodesk.Max;
 using BabylonExport.Entities;
 
@@ -6,14 +6,14 @@ namespace Max2Babylon
 {
     partial class BabylonExporter
     {
-        private BabylonShadowGenerator ExportShadowGenerator(IINode lightNode, BabylonScene babylonScene)
+        private BabylonShadowGenerator ExportShadowGenerator(IINode lightNode, BabylonScene babylonScene, BabylonLight babylonLight)
         {
             var maxLight = (lightNode.ObjectRef as ILightObject);
             var babylonShadowGenerator = new BabylonShadowGenerator();
 
             RaiseMessage("Exporting shadow map", 2);
 
-            babylonShadowGenerator.lightId = lightNode.GetGuid().ToString();
+            babylonShadowGenerator.lightId = babylonLight.id;
 
             babylonShadowGenerator.mapSize = maxLight.GetMapSize(0, Tools.Forever);
 
@@ -47,7 +47,7 @@ namespace Max2Babylon
 
             foreach (var meshNode in Loader.Core.RootNode.NodesListBySuperClass(SClass_ID.Geomobject))
             {
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
                 if (meshNode.CastShadows)
 #else
                 if (meshNode.CastShadows == 1)

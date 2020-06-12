@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Text;
 
@@ -22,7 +22,7 @@ namespace Utilities
             }
             for (var i = 0; i < current.Length; ++i)
             {
-                if (Math.Abs(current[i] - other[i]) > epsilon)
+                if (!MathUtilities.IsAlmostEqualTo(current[i], other[i], epsilon))
                 {
                     return false;
                 }

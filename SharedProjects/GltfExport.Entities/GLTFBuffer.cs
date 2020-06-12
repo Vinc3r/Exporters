@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Runtime.Serialization;
 
 namespace GLTFExport.Entities
@@ -6,7 +6,7 @@ namespace GLTFExport.Entities
     [DataContract]
     public class GLTFBuffer : GLTFIndexedChildRootProperty
     {
-        [DataMember(EmitDefaultValue = false)]
+        [DataMember]
         public string uri { get; set; }
 
         [DataMember(IsRequired = true)]
@@ -14,5 +14,10 @@ namespace GLTFExport.Entities
 
         public List<byte> bytesList = new List<byte>();
         public List<GLTFBufferView> BufferViews = new List<GLTFBufferView>();
+
+        public bool ShouldSerializeuri()
+        {
+            return (this.uri != null);
+        }
     }
 }

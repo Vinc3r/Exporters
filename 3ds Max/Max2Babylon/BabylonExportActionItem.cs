@@ -1,19 +1,30 @@
-﻿using System.Windows.Forms;
+using System;
+using System.Windows.Forms;
 using ActionItem = Autodesk.Max.Plugins.ActionItem;
 
 namespace Max2Babylon
 {
     public class BabylonExportActionItem : ActionItem
     {
+        NativeWindow parentWindow;
         private ExporterForm form;
 
         public override bool ExecuteAction()
         {
             if (form == null || form.IsDisposed)
                 form = new ExporterForm(this);
-            form.Show();
-            form.BringToFront();
+
+            if (parentWindow == null)
+                parentWindow = new NativeWindow();
+
+            if (parentWindow.Handle == IntPtr.Zero)
+                parentWindow.AssignHandle(Loader.Core.MAXHWnd);
+
+            if (!form.Visible)
+                form.Show(parentWindow);
+
             form.WindowState = FormWindowState.Normal;
+            form.BringToFront();
 
             return true;
         }

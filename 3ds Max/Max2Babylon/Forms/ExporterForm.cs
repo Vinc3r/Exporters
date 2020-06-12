@@ -1,4 +1,4 @@
-﻿using Autodesk.Max;
+using Autodesk.Max;
 using BabylonExport.Entities;
 using System;
 using System.Diagnostics;
@@ -15,9 +15,6 @@ namespace Max2Babylon
 {
     public partial class ExporterForm : Form
     {
-        private const string ModelFilePathProperty = "modelFilePathProperty";
-        private const string TextureFolderPathProperty = "textureFolderPathProperty";
-
         private readonly BabylonExportActionItem babylonExportAction;
         private BabylonExporter exporter;
         private bool gltfPipelineInstalled = true;  // true if the gltf-pipeline is installed and runnable.
@@ -102,6 +99,7 @@ namespace Max2Babylon
             Tools.PrepareCheckBox(chkExportAnimationsOnly, Loader.Core.RootNode, "babylonjs_export_animations_only");
             Tools.PrepareCheckBox(chkExportMorphTangents, Loader.Core.RootNode, "babylonjs_export_Morph_Tangents", 0);
             Tools.PrepareCheckBox(chkExportMorphNormals, Loader.Core.RootNode, "babylonjs_export_Morph_Normals", 1);
+            Tools.PrepareCheckBox(chkExportTextures, Loader.Core.RootNode, "babylonjs_export_Textures", 1);
             Tools.PrepareComboBox(cmbBakeAnimationOptions, Loader.Core.RootNode, "babylonjs_bakeAnimationsType", (int)BakeAnimationType.DoNotBakeAnimation);
             Tools.PrepareCheckBox(chkApplyPreprocessToScene, Loader.Core.RootNode, "babylonjs_applyPreprocess", 0);
 
@@ -241,7 +239,7 @@ namespace Max2Babylon
             }
         }
 
-        private async void butExport_Click(object sender, EventArgs e)
+        public async void butExport_Click(object sender, EventArgs e)
         {
             try
             {
@@ -311,6 +309,7 @@ namespace Max2Babylon
             Tools.UpdateCheckBox(chkDoNotOptimizeAnimations, Loader.Core.RootNode, "babylonjs_donotoptimizeanimations");
             Tools.UpdateCheckBox(chkExportMorphTangents, Loader.Core.RootNode, "babylonjs_export_Morph_Tangents");
             Tools.UpdateCheckBox(chkExportMorphNormals, Loader.Core.RootNode, "babylonjs_export_Morph_Normals");
+            Tools.UpdateCheckBox(chkExportTextures, Loader.Core.RootNode, "babylonjs_export_Textures");
             Tools.UpdateComboBoxByIndex(cmbBakeAnimationOptions, Loader.Core.RootNode, "babylonjs_bakeAnimationsType");
             Tools.UpdateCheckBox(chkApplyPreprocessToScene,Loader.Core.RootNode, "babylonjs_applyPreprocess");
 
@@ -425,6 +424,7 @@ namespace Max2Babylon
                     textureFolder = textureExportPath,
                     outputFormat = comboOutputFormat.SelectedItem.ToString(),
                     scaleFactor = scaleFactorParsed,
+                    exportTextures = chkExportTextures.Checked,
                     writeTextures = chkWriteTextures.Checked,
                     overwriteTextures = chkOverwriteTextures.Checked,
                     exportHiddenObjects = chkHidden.Checked,
@@ -465,6 +465,7 @@ namespace Max2Babylon
             {
                 progressBar.Value = 0;
                 success = false;
+                ScriptsUtilities.ExecuteMaxScriptCommand(@"global BabylonExporterStatus = ""Available""");
             }
             catch (Exception ex)
             {
@@ -477,6 +478,7 @@ namespace Max2Babylon
 
                 progressBar.Value = 0;
                 success = false;
+                ScriptsUtilities.ExecuteMaxScriptCommand(@"global BabylonExporterStatus = Available");
             }
 
             butCancel.Enabled = false;

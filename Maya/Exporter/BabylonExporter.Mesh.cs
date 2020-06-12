@@ -1,4 +1,4 @@
-﻿using Autodesk.Maya.OpenMaya;
+using Autodesk.Maya.OpenMaya;
 using Autodesk.Maya.OpenMayaAnim;
 using BabylonExport.Entities;
 using MayaBabylon;
@@ -512,6 +512,11 @@ namespace Maya2Babylon
             // TODO - Add custom properties
             //var optimizeVertices = false; // meshNode.MaxNode.GetBoolProperty("babylonjsexportParameters.optimizeVertices");
             var optimizeVertices = exportParameters.optimizeVertices; // global option
+            if (optimizeVertices && hasMorphTarget)
+            {
+                optimizeVertices = false;
+                RaiseWarning("Unable to optimize a mesh with morph targets. Disabling optimization for this mesh.", 2);
+            }
 
             // Compute normals
             var subMeshes = new List<BabylonSubMesh>();
@@ -849,6 +854,11 @@ namespace Maya2Babylon
             point.z *= -1;
             normal.z *= -1;
 
+            // Apply unit conversion factor to meter
+            point.x *= scaleFactorToMeters;
+            point.y *= scaleFactorToMeters;
+            point.z *= scaleFactorToMeters;
+
             var vertex = new GlobalVertex
             {
                 BaseIndex = vertexIndexGlobal,
@@ -1063,29 +1073,6 @@ namespace Maya2Babylon
 
             // Hierarchy
             ExportHierarchy(babylonAbstractMesh, mFnTransform);
-        }
-
-        private void ExportTransform(BabylonAbstractMesh babylonAbstractMesh, MFnTransform mFnTransform)
-        {
-            // Position / rotation / scaling
-            RaiseVerbose("BabylonExporter.Mesh | ExportTransform", 2);
-            float[] position = null;
-            float[] rotationQuaternion = null;
-            float[] rotation = null;
-            float[] scaling = null;
-            BabylonVector3.EulerRotationOrder rotationOrder = BabylonVector3.EulerRotationOrder.XYZ;
-            GetTransform(mFnTransform, ref position, ref rotationQuaternion, ref rotation, ref rotationOrder, ref scaling);
-
-            babylonAbstractMesh.position = position;
-            if (_exportQuaternionsInsteadOfEulers)
-            {
-                babylonAbstractMesh.rotationQuaternion = rotationQuaternion;
-            }
-            else
-            {
-                babylonAbstractMesh.rotation = rotation;
-            }
-            babylonAbstractMesh.scaling = scaling;
         }
 
         /// <summary>
@@ -1311,6 +1298,11 @@ namespace Maya2Babylon
                             position.z *= -1;
                             normal.z *= -1;
 
+                            // Apply unit conversion factor to meter
+                            position.x *= scaleFactorToMeters;
+                            position.y *= scaleFactorToMeters;
+                            position.z *= scaleFactorToMeters;
+
                             GlobalVertex vertex = new GlobalVertex
                             {
                                 BaseIndex = vertexData.vertexIndexGlobal,
@@ -1358,7 +1350,10 @@ namespace Maya2Babylon
                         }
 
                         // Animation
-                        babylonMorphTarget.animations = GetAnimationsInfluence(blendShapeDeformer.name, weightIndex).ToArray();
+                        if (exportParameters.exportAnimations)
+                        {
+                            babylonMorphTarget.animations = GetAnimationsInfluence(blendShapeDeformer.name, weightIndex).ToArray();
+                        }
                     }
 
                 }

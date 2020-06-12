@@ -1,4 +1,4 @@
-﻿using System.Runtime.Serialization;
+using System.Runtime.Serialization;
 
 namespace GLTFExport.Entities
 {
@@ -17,5 +17,10 @@ namespace GLTFExport.Entities
         /// </summary>
         [DataMember(IsRequired = true)]
         public GLTFChannelTarget target { get; set; }
+
+        public bool ShouldSerializetarget()
+        {
+            return (this.target != null);
+        }
     }
 }

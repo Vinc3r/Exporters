@@ -1,4 +1,4 @@
-﻿using Autodesk.Max;
+using Autodesk.Max;
 using System;
 using System.Drawing;
 
@@ -99,6 +99,12 @@ namespace Max2Babylon
                             break;
                         case ParamType2.Float:
                             RaiseVerbose("paramBlock.GetProperty(" + i + ")=" + paramBlock.GetFloat(i, 0, 0), logRank + 2);
+                            break;
+                        case ParamType2.Bool2:
+                            RaiseVerbose("paramBlock.GetProperty(" + i + ")=" + paramBlock.GetInt(i, 0, 0), logRank + 2);
+                            break;
+                        case ParamType2.Rgba:
+                            RaiseVerbose("paramBlock.GetProperty(" + i + ")=" + paramBlock.GetColor(i, 0, 0), logRank + 2);
                             break;
                         default:
                             RaiseVerbose("Unknown property type", logRank + 2);

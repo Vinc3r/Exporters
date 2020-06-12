@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.Serialization;
 
@@ -118,6 +118,36 @@ namespace GLTFExport.Entities
                 default:
                     return 0;
             }
+        }
+
+        public bool ShouldSerializebufferView()
+        {
+            return (this.bufferView != null);
+        }
+
+        public bool ShouldSerializebyteOffset()
+        {
+            return (this.byteOffset != 0);
+        }
+
+        public bool ShouldSerializenormalized()
+        {
+            return (this.normalized != false);
+        }
+
+        public bool ShouldSerializemax()
+        {
+            return (this.max != null);
+        }
+
+        public bool ShouldSerializemin()
+        {
+            return (this.min != null);
+        }
+
+        public bool ShouldSerializesparse()
+        {
+            return (this.sparse != null);
         }
     }
 }

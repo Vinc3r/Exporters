@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Runtime.Serialization;
 
 namespace BabylonExport.Entities
@@ -53,6 +53,8 @@ namespace BabylonExport.Entities
         [DataMember]
         public int? falloffType { get; set; }
 
+        public bool? hasDummy { get; set; }
+
         public BabylonLight()
         {
             diffuse = new[] {1.0f, 1.0f, 1.0f};
@@ -67,6 +69,7 @@ namespace BabylonExport.Entities
             rotation = new float[] { 0, 0, 0 };
             rotationQuaternion = new float[] { 0, 0, 0, 1 };
             scaling = new float[] { 1, 1, 1 };
+            name = "";
         }
     }
 }

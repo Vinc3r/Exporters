@@ -1,4 +1,4 @@
-﻿using Autodesk.Max;
+using Autodesk.Max;
 using BabylonExport.Entities;
 using System;
 using System.Collections.Generic;
@@ -298,7 +298,7 @@ namespace Max2Babylon
             var keys = new List<BabylonAnimationKey>();
             for (int indexKey = 0; indexKey < gameKeyTab.Count; indexKey++)
             {
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
                 var gameKey = gameKeyTab[indexKey];
 #else
                 var gameKey = gameKeyTab[new IntPtr(indexKey)];
@@ -496,7 +496,7 @@ namespace Max2Babylon
             }
         }
 
-        private float[] weightedLerp(int frame0, int frame1, int frame2, float[] value0, float[] value2)
+        private float[] weightedLerp(float frame0, float frame1, float frame2, float[] value0, float[] value2)
         {
             double weight2 = (frame1 - frame0) / (double)(frame2 - frame0);
             double weight0 = 1 - weight2;
@@ -667,6 +667,9 @@ namespace Max2Babylon
                     var t_babylon = new BabylonVector3();
 
                     tm_babylon.decompose(s_babylon, q_babylon, t_babylon);
+
+                    // Apply unit conversion factor to meter
+                    t_babylon *= scaleFactorToMeters;
 
                     return new[] { t_babylon.X, t_babylon.Y, t_babylon.Z };
                 });

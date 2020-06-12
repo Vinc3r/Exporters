@@ -1,4 +1,4 @@
-﻿using Autodesk.Max;
+using Autodesk.Max;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -22,6 +22,7 @@ namespace Max2Babylon
         {
             InitializeComponent();
             ExportItemGridView_Populate(exportItemList);
+            TopMost = true;
         }
 
         private void ExportItemGridView_Populate(ExportItemList exportItemList)

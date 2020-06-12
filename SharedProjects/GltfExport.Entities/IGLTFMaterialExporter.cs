@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Text;
 using BabylonExport.Entities;
-using GLTFExport.Entities;
 using Utilities;
 
 namespace GLTFExport.Entities

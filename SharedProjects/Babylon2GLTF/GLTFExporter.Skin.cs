@@ -1,4 +1,4 @@
-﻿using BabylonExport.Entities;
+using BabylonExport.Entities;
 using GLTFExport.Entities;
 using GLTFExport.Tools;
 using System;
@@ -33,7 +33,6 @@ namespace Babylon2GLTF
                     var rotationQuatBabylon = new BabylonQuaternion();
                     var scale = new BabylonVector3();
                     boneLocalMatrix.decompose(scale, rotationQuatBabylon, translationBabylon);
-                    translationBabylon *= exportParameters.scaleFactor;
                     translationBabylon.Z *= -1;
                     rotationQuatBabylon.X *= -1;
                     rotationQuatBabylon.Y *= -1;

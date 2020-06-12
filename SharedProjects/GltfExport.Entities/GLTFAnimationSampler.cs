@@ -1,4 +1,6 @@
-﻿using System.Runtime.Serialization;
+using System.Runtime.Serialization;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
 
 namespace GLTFExport.Entities
 {
@@ -7,9 +9,11 @@ namespace GLTFExport.Entities
     {
         public enum Interpolation
         {
+            [EnumMember(Value = "LINEAR")]
             LINEAR,
+            [EnumMember(Value = "STEP")]
             STEP,
-            CATMULLROMSPLINE,
+            [EnumMember(Value = "CUBICSPLINE")]
             CUBICSPLINE
         }
 
@@ -20,8 +24,9 @@ namespace GLTFExport.Entities
         [DataMember(IsRequired = true)]
         public int input { get; set; }
 
-        [DataMember(EmitDefaultValue = false)]
-        public string interpolation { get; private set; }
+        [DataMember]
+        [JsonConverter(typeof(StringEnumConverter))]
+        public Interpolation interpolation { get; private set; }
 
         /// <summary>
         /// The index of an accessor containing keyframe output values.
@@ -36,7 +41,7 @@ namespace GLTFExport.Entities
 
         public void SetInterpolation(Interpolation interpolation)
         {
-            this.interpolation = interpolation.ToString();
+            this.interpolation = interpolation;
         }
 
         public GLTFAnimationSampler()
@@ -44,6 +49,11 @@ namespace GLTFExport.Entities
             // For GLTF, default value is LINEAR
             // but gltf loader of BABYLON doesn't handle missing interpolation value
             SetInterpolation(Interpolation.LINEAR);
+        }
+
+        public bool ShouldSerializeinterpolation()
+        {
+            return (this.interpolation != Interpolation.LINEAR);
         }
     }
 }

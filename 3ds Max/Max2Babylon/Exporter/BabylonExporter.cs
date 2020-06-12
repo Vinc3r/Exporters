@@ -1,4 +1,4 @@
-﻿using Autodesk.Max;
+using Autodesk.Max;
 using Babylon2GLTF;
 using BabylonExport.Entities;
 using Newtonsoft.Json;
@@ -30,7 +30,7 @@ namespace Max2Babylon
         private bool exportNonAnimated;
 
         public static string exporterVersion = "Custom.Build.Version";
-        public float scaleFactor = 1.0f;
+        public float scaleFactorToMeters = 1.0f;
 
         public const int MaxSceneTicksPerSecond = 4800; //https://knowledge.autodesk.com/search-result/caas/CloudHelp/cloudhelp/2016/ENU/MAXScript-Help/files/GUID-141213A1-B5A8-457B-8838-E602022C8798-htm.html
 
@@ -141,15 +141,23 @@ namespace Max2Babylon
 
             IINode hierachyRoot = (node != null) ? node : Loader.Core.RootNode;
 
-#if MAX2020
+#if MAX2020 || MAX2021
             var tobake = Loader.Global.INodeTab.Create();
 #else
             var tobake = Loader.Global.NodeTab.Create();
 #endif
-            foreach (IINode iNode in hierachyRoot.NodeTree())
+            if (bakeAnimationType == BakeAnimationType.BakeSelective)
             {
-                tobake.AppendNode(iNode,false,Loader.Core.Time);
+                foreach (IINode iNode in hierachyRoot.NodeTree())
+                {
+                    if (iNode.IsMarkedAsObjectToBakeAnimation())
+                    {
+                        tobake.AppendNode(iNode,false,Loader.Core.Time);
+                    }
+                }
             }
+
+            
             if (!hierachyRoot.IsRootNode) tobake.AppendNode(hierachyRoot,false,Loader.Core.Time);
 
             Loader.Core.SelectNodeTab(tobake,true,false);
@@ -165,7 +173,6 @@ namespace Max2Babylon
             ScriptsUtilities.ExecuteMaxScriptCommand(@"
                 for obj in selection do 
                 (
-                    if obj.isAnimated == false then continue
                     tag = getUserProp obj ""babylonjs_BakeAnimation""
                     if tag!=true then continue
 
@@ -221,6 +228,7 @@ namespace Max2Babylon
 
         public void Export(ExportParameters exportParameters)
         {
+            ScriptsUtilities.ExecuteMaxScriptCommand(@"global BabylonExporterStatus = ""Unavailable""");
             var watch = new Stopwatch();
             watch.Start();
 
@@ -264,7 +272,8 @@ namespace Max2Babylon
             RaiseMessage($"Exportation started: {fileExportString}", Color.Blue);
 
 
-            this.scaleFactor = Tools.GetScaleFactorToMeters();
+            scaleFactorToMeters = Tools.GetScaleFactorToMeters();
+            RaiseVerbose($"scaleFactorToMeters: {scaleFactorToMeters}");
 
             long quality = exportParameters.txtQuality;
             try
@@ -278,6 +287,7 @@ namespace Max2Babylon
             {
                 RaiseError("Quality is not a valid number. It should be an integer between 0 and 100.");
                 RaiseError("This parameter sets the quality of jpg compression.");
+                ScriptsUtilities.ExecuteMaxScriptCommand(@"global BabylonExporterStatus = ""Available""");
                 return;
             }
 
@@ -313,6 +323,7 @@ namespace Max2Babylon
             {
                 RaiseError("Exportation stopped: Output folder does not exist");
                 ReportProgressChanged(100);
+                ScriptsUtilities.ExecuteMaxScriptCommand(@"global BabylonExporterStatus = ""Available""");
                 return;
             }
             Directory.CreateDirectory(tempOutputDirectory);
@@ -349,7 +360,9 @@ namespace Max2Babylon
             babylonScene.producer = new BabylonProducer
             {
                 name = "3dsmax",
-#if MAX2020
+#if MAX2021
+                version = "2021",
+#elif MAX2020
                 version = "2020",
 #elif MAX2019
                 version = "2019",
@@ -358,7 +371,7 @@ namespace Max2Babylon
 #elif MAX2017
                 version = "2017",
 #else
-               version = Loader.Core.ProductVersion.ToString(),
+                version = Loader.Core.ProductVersion.ToString(),
 #endif
                 exporter_version = exporterVersion,
                 file = outputFileName
@@ -501,7 +514,7 @@ namespace Max2Babylon
                 for (int index = 0; index < babylonScene.LightsList.Count; index++)
                 {
                     BabylonNode light = babylonScene.LightsList[index];
-                    FixNodeRotation(ref light, ref babylonScene, -Math.PI / 2);
+                    FixNodeRotation(ref light, ref babylonScene, Math.PI / 2);
                 }
 
             }
@@ -685,8 +698,8 @@ namespace Max2Babylon
 
             if (isBabylonExported)
             {
-                // if we are exporting to .Babylon then remove animations from nodes if there are animation groups.
-                if (babylonScene.animationGroups != null && babylonScene.animationGroups.Count > 0)
+                // if we are exporting to .Babylon then remove then remove animations from nodes if there are animation groups.
+                if (babylonScene.animationGroups?.Count > 0)
                 {
                     foreach (BabylonNode node in babylonScene.MeshesList)
                     {
@@ -883,6 +896,7 @@ namespace Max2Babylon
                     Tools.RemoveFlattenModification();
                 }
             }
+            ScriptsUtilities.ExecuteMaxScriptCommand(@"global BabylonExporterStatus = ""Available""");
         }
 
         private void moveFileToOutputDirectory(string sourceFilePath, string targetFilePath, ExportParameters exportParameters)
@@ -1092,7 +1106,7 @@ namespace Max2Babylon
                 List<T> list = new List<T>();
                 for (int i = 0; i < tab.Count; i++)
                 {
-#if MAX2017 || MAX2018 || MAX2019 || MAX2020
+#if MAX2017 || MAX2018 || MAX2019 || MAX2020 || MAX2021
                     var item = tab[i];
 #else
                     var item = tab[new IntPtr(i)];

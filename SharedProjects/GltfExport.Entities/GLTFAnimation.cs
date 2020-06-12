@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Runtime.Serialization;
 
 namespace GLTFExport.Entities
@@ -39,6 +39,16 @@ namespace GLTFExport.Entities
             {
                 samplers = SamplerList.ToArray();
             }
+        }
+
+        public bool ShouldSerializechannels()
+        {
+            return (this.channels != null);
+        }
+
+        public bool ShouldSerializesamplers()
+        {
+            return (this.samplers != null);
         }
     }
 }

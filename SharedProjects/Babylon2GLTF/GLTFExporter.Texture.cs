@@ -1,4 +1,4 @@
-﻿using BabylonExport;
+using BabylonExport;
 using BabylonExport.Entities;
 using GLTFExport.Entities;
 using Utilities;
@@ -32,6 +32,14 @@ namespace Babylon2GLTF
                 if (bitmap == null)
                 {
                     bitmap = babylonTexture.bitmap;
+                }
+                else
+                {
+                    if(bitmap != babylonTexture.bitmap)
+                    {
+                        babylonTexture = new BabylonTexture(babylonTexture);
+                        babylonTexture.bitmap = bitmap;
+                    }
                 }
                 if (name == null)
                 {
@@ -146,6 +154,15 @@ namespace Babylon2GLTF
                     };
                     gltfImage.index = gltf.ImagesList.Count;
                     gltf.ImagesList.Add(gltfImage);
+                    switch (validImageFormat)
+                    {
+                        case "jpg":
+                            gltfImage.FileExtension = "jpeg";
+                            break;
+                        case "png":
+                            gltfImage.FileExtension = "png";
+                            break;
+                    }
                     if (exportParameters.outputFormat == "glb")
                     {
                         var imageBufferView = WriteImageToGltfBuffer(gltf, gltfImage, sourcePath, babylonTexture.bitmap);
@@ -173,15 +190,6 @@ namespace Babylon2GLTF
                         }
                     }
                     glTFImageMap.Add(name, gltfImage);
-                    switch (validImageFormat)
-                    {
-                        case "jpg":
-                            gltfImage.FileExtension = "jpeg";
-                            break;
-                        case "png":
-                            gltfImage.FileExtension = "png";
-                            break;
-                    }
                 }
 
                 // --------------------------
@@ -440,9 +448,9 @@ namespace Babylon2GLTF
 
             KHR_texture_transform textureTransform = new KHR_texture_transform
             {
-                offset = new float[] { babylonTexture.uOffset, babylonTexture.vOffset },
+                offset = new float[] { babylonTexture.uOffset, -babylonTexture.vOffset },
                 rotation = angle,
-                scale = new float[] { babylonTexture.uScale, babylonTexture.vScale },
+                scale = new float[] { babylonTexture.uScale, -babylonTexture.vScale },
                 texCoord = babylonTexture.coordinatesIndex
             };
 

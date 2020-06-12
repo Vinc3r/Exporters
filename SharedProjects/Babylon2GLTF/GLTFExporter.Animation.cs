@@ -1,4 +1,4 @@
-﻿using BabylonExport.Entities;
+using BabylonExport.Entities;
 using GLTFExport.Entities;
 using GLTFExport.Tools;
 using System;
@@ -106,11 +106,11 @@ namespace Babylon2GLTF
 
                             if (nodeHasAnimations && babylonNode.animations[0].property == "_matrix") //TODO: Is this check accurate for deciphering between bones and nodes?
                             {
-                                ExportBoneAnimation(gltfAnimation, startFrame, endFrame, gltf, babylonNode, gltfNode);
+                                ExportBoneAnimation(gltfAnimation, startFrame, endFrame, gltf, babylonNode, gltfNode, animGroup);
                             }
                             else
                             {
-                                ExportNodeAnimation(gltfAnimation, startFrame, endFrame, gltf, babylonNode, gltfNode, babylonScene);
+                                ExportNodeAnimation(gltfAnimation, startFrame, endFrame, gltf, babylonNode, gltfNode, babylonScene, animGroup);
                             }
                         }
                         else
@@ -142,7 +142,7 @@ namespace Babylon2GLTF
             }
         }
 
-        private void ExportNodeAnimation(GLTFAnimation gltfAnimation, int startFrame, int endFrame, GLTF gltf, BabylonNode babylonNode, GLTFNode gltfNode, BabylonScene babylonScene)
+        private void ExportNodeAnimation(GLTFAnimation gltfAnimation, int startFrame, int endFrame, GLTF gltf, BabylonNode babylonNode, GLTFNode gltfNode, BabylonScene babylonScene, BabylonAnimationGroup animationGroup = null)
         {
             var channelList = gltfAnimation.ChannelList;
             var samplerList = gltfAnimation.SamplerList;
@@ -151,7 +151,17 @@ namespace Babylon2GLTF
             
             // Combine babylon animations from .babylon file and cached ones
             var babylonAnimations = new List<BabylonAnimation>();
-            if (babylonNode.animations != null)
+            if (animationGroup != null)
+            {
+                var targetedAnimation = animationGroup.targetedAnimations.FirstOrDefault(animation => animation.targetId == babylonNode.id);
+                if (targetedAnimation != null)
+                {
+                    babylonAnimations.Add(targetedAnimation.animation);
+                }
+            }
+
+            // Do not include the node animations if a provided animation group already includes them.
+            if (babylonNode.animations != null && babylonAnimations.Count <= 0)
             {
                 babylonAnimations.AddRange(babylonNode.animations);
             }
@@ -213,9 +223,6 @@ namespace Babylon2GLTF
                         if (babylonAnimation.property == "position")
                         {
                             outputValues[2] *= -1;
-                            outputValues[0] *= exportParameters.scaleFactor;
-                            outputValues[1] *= exportParameters.scaleFactor;
-                            outputValues[2] *= exportParameters.scaleFactor;
                         }
                         else if (babylonAnimation.property == "rotationQuaternion")
                         {
@@ -257,7 +264,7 @@ namespace Babylon2GLTF
             ExportGLTFExtension(babylonNode, ref gltfAnimation,gltf);
         }
 
-        private void ExportBoneAnimation(GLTFAnimation gltfAnimation, int startFrame, int endFrame, GLTF gltf, BabylonNode babylonNode, GLTFNode gltfNode)
+        private void ExportBoneAnimation(GLTFAnimation gltfAnimation, int startFrame, int endFrame, GLTF gltf, BabylonNode babylonNode, GLTFNode gltfNode, BabylonAnimationGroup animationGroup = null)
         {
             var channelList = gltfAnimation.ChannelList;
             var samplerList = gltfAnimation.SamplerList;
@@ -266,7 +273,21 @@ namespace Babylon2GLTF
             {
                 logger.RaiseMessage("GLTFExporter.Animation | Export animation of bone named: " + babylonNode.name, 2);
 
-                var babylonAnimation = babylonNode.animations[0];
+                BabylonAnimation babylonAnimation = null;
+                if (animationGroup != null)
+                {
+                    var targetedAnimation = animationGroup.targetedAnimations.FirstOrDefault(animation => animation.targetId == babylonNode.id);
+                    if (targetedAnimation != null)
+                    {
+                        babylonAnimation = targetedAnimation.animation;
+                    }
+                }
+
+                // otherwise fall back to the full animation track on the node.
+                if (babylonAnimation == null)
+                {
+                    babylonAnimation = babylonNode.animations[0];
+                }
 
                 var babylonAnimationKeysInRange = babylonAnimation.keys.Where(key => key.frame >= startFrame && key.frame <= endFrame);
                 if (babylonAnimationKeysInRange.Count() <= 0)
@@ -300,7 +321,6 @@ namespace Babylon2GLTF
                     
                     // Switch coordinate system at object level
                     translationBabylon.Z *= -1;
-                    translationBabylon *= exportParameters.scaleFactor;
                     rotationQuatBabylon.X *= -1;
                     rotationQuatBabylon.Y *= -1;
 
@@ -463,7 +483,7 @@ namespace Babylon2GLTF
             }
 
             var influencesPerFrame = _getTargetManagerAnimationsData(babylonMorphTargetManager);
-            var frames = new List<int>(influencesPerFrame.Keys);
+            var frames = new List<float>(influencesPerFrame.Keys);
 
             var framesInRange = frames.Where(frame => frame >= startFrame && frame <= endFrame).ToList();
             framesInRange.Sort(); // Mandatory to sort otherwise gltf loader of babylon doesn't understand
@@ -615,10 +635,10 @@ namespace Babylon2GLTF
         /// for animation2, the value associated to key=0 is equal to the one at key=50 since 0 is out of range [50, 100] (same for key=25)</example>
         /// <param name="babylonMorphTargetManager"></param>
         /// <returns>A map which for each frame, gives the influence value of all targets</returns>
-        private Dictionary<int, List<float>> _getTargetManagerAnimationsData(BabylonMorphTargetManager babylonMorphTargetManager)
+        private Dictionary<float, List<float>> _getTargetManagerAnimationsData(BabylonMorphTargetManager babylonMorphTargetManager)
         {
             // Merge all keys into a single set (no duplicated frame)
-            var mergedFrames = new HashSet<int>();
+            var mergedFrames = new HashSet<float>();
             foreach (var babylonMorphTarget in babylonMorphTargetManager.targets)
             {
                 if (babylonMorphTarget.animations != null)
@@ -632,7 +652,7 @@ namespace Babylon2GLTF
             }
 
             // For each frame, gives the influence value of all targets (gltf structure)
-            var influencesPerFrame = new Dictionary<int, List<float>>();
+            var influencesPerFrame = new Dictionary<float, List<float>>();
             foreach (var frame in mergedFrames)
             {
                 influencesPerFrame.Add(frame, new List<float>());
@@ -640,7 +660,7 @@ namespace Babylon2GLTF
             foreach (var babylonMorphTarget in babylonMorphTargetManager.targets)
             {
                 // For a given target, for each frame, gives the influence value of the target (babylon structure)
-                var influencePerFrameForTarget = new Dictionary<int, float>();
+                var influencePerFrameForTarget = new Dictionary<float, float>();
 
                 if (babylonMorphTarget.animations != null && babylonMorphTarget.animations.Length > 0)
                 {
